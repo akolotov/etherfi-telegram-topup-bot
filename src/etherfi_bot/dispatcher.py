@@ -42,6 +42,7 @@ class BotDispatcher:
             keychain=keychain,
             clock=clock,
             admin_telegram_user_id=self.config.admin_telegram_user_id,
+            logger=logger,
         )
 
     def reload_config(self) -> BotConfig:

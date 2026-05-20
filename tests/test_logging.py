@@ -37,6 +37,7 @@ def test_fsm_happy_path_logs_operational_outcomes(harness_factory, caplog) -> No
     assert _has_event(messages, "safe_tx_created")
     assert _has_event(messages, "safe_tx_pending_reminder_sent")
     assert _has_event(messages, "safe_tx_cleared")
+    assert _has_record_at_level(caplog, "low_balance_prompt_sent", logging.INFO)
     assert any(f"safe_owner_key_ref={harness.user.safe_owner_key_ref}" in message for message in messages)
     assert all("private-key" not in message for message in messages)
 
@@ -109,6 +110,10 @@ def test_fsm_failure_logs_cover_external_errors_and_admin_delivery(
     assert _has_event(messages, "telegram_forbidden_reset")
     assert _has_event(messages, "admin_notification_skipped")
     assert _has_event(messages, "admin_notification_failed")
+    assert _has_record_at_level(caplog, "balance_read_failed", logging.WARNING)
+    assert _has_record_at_level(caplog, "safe_tx_status_read_failed", logging.WARNING)
+    assert _has_record_at_level(caplog, "safe_tx_creation_failed", logging.ERROR)
+    assert _has_record_at_level(caplog, "telegram_forbidden_reset", logging.WARNING)
 
 
 def test_fsm_debug_events_do_not_appear_at_info_level(harness_factory, caplog) -> None:
@@ -130,12 +135,29 @@ def test_fsm_debug_events_do_not_appear_at_info_level(harness_factory, caplog) -
     messages = _messages(caplog)
     assert _has_event(messages, "fsm_start_ignored")
     assert _has_event(messages, "callback_stale_ignored")
+    assert _has_record_at_level(caplog, "fsm_start_ignored", logging.DEBUG)
+    assert _has_record_at_level(caplog, "callback_stale_ignored", logging.DEBUG)
 
 
 def test_runtime_log_level_resolution() -> None:
     assert resolve_log_level("debug") == (logging.DEBUG, "DEBUG", None)
     assert resolve_log_level("WARNING") == (logging.WARNING, "WARNING", None)
     assert resolve_log_level("verbose") == (logging.INFO, "INFO", "verbose")
+
+
+def test_dispatcher_custom_logger_is_shared_with_fsm(tmp_path, caplog) -> None:
+    logger = logging.getLogger("etherfi_bot.custom_test_logger")
+    caplog.set_level(logging.INFO, logger=logger.name)
+    user = make_user(telegram_user_id=8451)
+    dispatcher, *_ = make_dispatcher(tmp_path, [user], logger=logger)
+
+    dispatcher.start(user.telegram_user_id)
+
+    config_records = _records_for_event(caplog, "dispatcher_config_loaded")
+    fsm_records = _records_for_event(caplog, "fsm_started")
+    assert config_records
+    assert fsm_records
+    assert all(record.name == logger.name for record in config_records + fsm_records)
 
 
 def test_adapter_logs_ignored_updates_and_callback_ack_failures(tmp_path, caplog) -> None:
@@ -210,3 +232,15 @@ def _messages(caplog) -> list[str]:
 
 def _has_event(messages: list[str], event: str) -> bool:
     return any(message == event or message.startswith(f"{event} ") for message in messages)
+
+
+def _has_record_at_level(caplog, event: str, level: int) -> bool:
+    return any(record.levelno == level for record in _records_for_event(caplog, event))
+
+
+def _records_for_event(caplog, event: str) -> list[logging.LogRecord]:
+    return [
+        record
+        for record in caplog.records
+        if record.getMessage() == event or record.getMessage().startswith(f"{event} ")
+    ]

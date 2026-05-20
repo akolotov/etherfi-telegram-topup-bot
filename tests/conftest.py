@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -121,6 +122,7 @@ def make_dispatcher(
     users: list[UserConfig],
     *,
     admin_user_id: int | None = 9001,
+    logger: logging.Logger | None = None,
 ) -> tuple[
     BotDispatcher,
     JsonStateRepository,
@@ -145,5 +147,6 @@ def make_dispatcher(
         safe_wallet=safe,
         keychain=keychain,
         clock=clock,
+        logger=logger,
     )
     return dispatcher, states, telegram, balances, safe, keychain, clock
