@@ -51,10 +51,13 @@ class UserConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "UserConfig":
+        balance_token_address = data["balance_token_address"]
+        if not isinstance(balance_token_address, str) or not balance_token_address.strip():
+            raise ValueError("balance_token_address must be a non-empty string")
         config = cls(
             telegram_user_id=int(data["telegram_user_id"]),
             target_account=str(data["target_account"]),
-            balance_token_address=str(data["balance_token_address"]),
+            balance_token_address=balance_token_address.strip(),
             balance_threshold=Decimal(str(data["balance_threshold"])),
             target_max_balance=Decimal(str(data["target_max_balance"])),
             balance_check_interval_seconds=int(data["balance_check_interval_seconds"]),
@@ -69,8 +72,8 @@ class UserConfig:
         return config
 
     def validate(self) -> None:
-        if not self.balance_token_address.strip():
-            raise ValueError("balance_token_address must not be empty")
+        if not isinstance(self.balance_token_address, str) or not self.balance_token_address.strip():
+            raise ValueError("balance_token_address must be a non-empty string")
         if self.low_balance_notification_limit < 1:
             raise ValueError("low_balance_notification_limit must be >= 1")
         if self.balance_check_interval_seconds <= 0:

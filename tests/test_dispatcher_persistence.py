@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+
+import pytest
 
 from etherfi_bot.dispatcher import BotDispatcher
 from etherfi_bot.domain import BotState, UserState
@@ -47,6 +50,38 @@ def test_json_config_repository_round_trips_balance_token_address(tmp_path) -> N
     loaded_user = config.user(user.telegram_user_id)
     assert loaded_user is not None
     assert loaded_user.balance_token_address == user.balance_token_address
+
+
+@pytest.mark.parametrize("invalid_value", [None, "", "   ", 123])
+def test_json_config_repository_rejects_invalid_balance_token_address(
+    tmp_path,
+    invalid_value,
+) -> None:
+    user = make_user(telegram_user_id=1001)
+    payload = {
+        "admin_telegram_user_id": 9001,
+        "users": [
+            {
+                "telegram_user_id": user.telegram_user_id,
+                "target_account": user.target_account,
+                "balance_token_address": invalid_value,
+                "balance_threshold": str(user.balance_threshold),
+                "target_max_balance": str(user.target_max_balance),
+                "balance_check_interval_seconds": user.balance_check_interval_seconds,
+                "safe_account": user.safe_account,
+                "safe_owner_key_ref": user.safe_owner_key_ref,
+                "low_balance_notification_limit": user.low_balance_notification_limit,
+                "low_balance_notification_cooldown_seconds": (
+                    user.low_balance_notification_cooldown_seconds
+                ),
+            }
+        ],
+    }
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="balance_token_address must be a non-empty string"):
+        JsonConfigRepository(config_path).load()
 
 
 def test_dispatcher_callbacks_before_start_are_noops(tmp_path) -> None:
