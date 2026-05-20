@@ -33,6 +33,7 @@ Useful environment overrides:
 - `CONFIG_PATH`: path to the JSON bot config, default `data/config.json`
 - `STATE_DIR`: persisted FSM state directory, default `data/user_states`
 - `POLLING_OFFSET_PATH`: persisted Telegram polling offset, default `data/polling_offset.json`
+- `POLLING_PENDING_UPDATE_PATH`: pending Telegram update recovery file, default `data/polling_pending_update.json`
 - `POLL_TIMEOUT_SECONDS`: Telegram long-poll timeout, default `25`
 - `LOG_LEVEL`: runtime log level, default `INFO`
 

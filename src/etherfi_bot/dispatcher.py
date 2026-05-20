@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from math import ceil
 
 from etherfi_bot.domain import BotConfig, BotState, UserConfig, UserState
 from etherfi_bot.fsm import FsmService
@@ -116,6 +117,21 @@ class BotDispatcher:
             if state.next_tick_at is None or state.next_tick_at <= now:
                 due.append(state.telegram_user_id)
         return due
+
+    def seconds_until_next_due_tick(self) -> int | None:
+        now = self._clock.now()
+        soonest_seconds: int | None = None
+        for state in self._states.list_states():
+            if state.state is BotState.NOT_STARTED:
+                continue
+            if self._configured_user(state.telegram_user_id) is None:
+                continue
+            if state.next_tick_at is None:
+                return 0
+            seconds = max(0, ceil((state.next_tick_at - now).total_seconds()))
+            if soonest_seconds is None or seconds < soonest_seconds:
+                soonest_seconds = seconds
+        return soonest_seconds
 
     def _configured_user(self, telegram_user_id: int) -> UserConfig | None:
         return self.config.user(int(telegram_user_id))

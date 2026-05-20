@@ -632,6 +632,8 @@ class FsmService:
             target_max_balance=user.target_max_balance,
             safe_owner_key_ref=user.safe_owner_key_ref,
         )
+        # A Telegram 403 here is intentional state signal: the user blocked the bot
+        # after requesting top-up, so callback_top_up resets the user to S0.
         self._telegram.send_safe_tx_created(user, safe_tx_id)
         state.pending_safe_tx_id = safe_tx_id
         state.tx_reminder_until = self._clock.now() + self._cooldown_delta(user)
@@ -750,7 +752,7 @@ class FsmService:
             return
         try:
             self._telegram.send_admin_error(self._admin_telegram_user_id, message)
-        except TelegramForbiddenError as error:
+        except Exception as error:
             self._logger.warning(
                 "admin_notification_failed admin_telegram_user_id=%s error_type=%s error=%s",
                 self._admin_telegram_user_id,

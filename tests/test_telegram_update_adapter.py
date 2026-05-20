@@ -142,6 +142,48 @@ def test_stale_and_unsupported_callbacks_are_noops_but_acknowledged(tmp_path) ->
     assert callback_recorder.ids == [stale["callback_query"]["id"], "unsupported-callback"]
 
 
+def test_group_callback_from_allowed_user_is_ignored(tmp_path) -> None:
+    user = make_user(telegram_user_id=1001)
+    dispatcher, states, _telegram, balances, safe, *_ = make_dispatcher(tmp_path, [user])
+    callback_recorder = CallbackRecorder()
+    adapter = TelegramUpdateAdapter(dispatcher, callback_answerer=callback_recorder)
+    dispatcher.start(user.telegram_user_id)
+    balances.set_balance(user.target_account, "1")
+    prompt_state = dispatcher.balance_tick(user.telegram_user_id)
+    state_before = states.load(user.telegram_user_id).to_dict()
+    update = load_fixture("callback_query_top_up")
+    update["callback_query"]["message"]["message_id"] = prompt_state.current_message_id
+    update["callback_query"]["message"]["chat"] = {"id": -1001234567890, "type": "supergroup"}
+
+    action = adapter.handle_update(update)
+
+    assert action == "ignored_callback"
+    assert states.load(user.telegram_user_id).to_dict() == state_before
+    assert safe.created_txs == []
+    assert callback_recorder.ids == [update["callback_query"]["id"]]
+
+
+def test_malformed_private_callback_chat_id_is_ignored(tmp_path) -> None:
+    user = make_user(telegram_user_id=1001)
+    dispatcher, states, _telegram, balances, safe, *_ = make_dispatcher(tmp_path, [user])
+    callback_recorder = CallbackRecorder()
+    adapter = TelegramUpdateAdapter(dispatcher, callback_answerer=callback_recorder)
+    dispatcher.start(user.telegram_user_id)
+    balances.set_balance(user.target_account, "1")
+    prompt_state = dispatcher.balance_tick(user.telegram_user_id)
+    state_before = states.load(user.telegram_user_id).to_dict()
+    update = load_fixture("callback_query_top_up")
+    update["callback_query"]["message"]["message_id"] = prompt_state.current_message_id
+    update["callback_query"]["message"]["chat"] = {"type": "private"}
+
+    action = adapter.handle_update(update)
+
+    assert action == "ignored_callback"
+    assert states.load(user.telegram_user_id).to_dict() == state_before
+    assert safe.created_txs == []
+    assert callback_recorder.ids == [update["callback_query"]["id"]]
+
+
 def test_plain_reply_and_reaction_updates_are_ignored(tmp_path) -> None:
     user = make_user(telegram_user_id=1001)
     dispatcher, states, _telegram, balances, *_ = make_dispatcher(tmp_path, [user])

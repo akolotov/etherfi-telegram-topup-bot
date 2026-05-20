@@ -7,7 +7,11 @@ from datetime import datetime, timezone
 
 from etherfi_bot.dispatcher import BotDispatcher
 from etherfi_bot.mocks import MockBalanceProvider, MockKeychain, MockSafeWalletClient
-from etherfi_bot.polling import JsonPollingOffsetStore, PollingBotRunner
+from etherfi_bot.polling import (
+    JsonPollingOffsetStore,
+    JsonPollingPendingUpdateStore,
+    PollingBotRunner,
+)
 from etherfi_bot.settings import RuntimeSettings
 from etherfi_bot.storage import JsonConfigRepository, JsonStateRepository
 from etherfi_bot.telegram_adapter import TelegramUpdateAdapter
@@ -65,6 +69,9 @@ def build_runtime(settings: RuntimeSettings) -> RuntimeComponents:
         adapter=adapter,
         dispatcher=dispatcher,
         offset_store=JsonPollingOffsetStore(settings.polling_offset_path),
+        pending_update_store=JsonPollingPendingUpdateStore(
+            settings.polling_pending_update_path
+        ),
         poll_timeout_seconds=settings.poll_timeout_seconds,
     )
     return RuntimeComponents(
@@ -104,13 +111,15 @@ def main(argv: list[str] | None = None) -> None:
         )
     logger.info(
         "runtime_start ingress_mode=%s log_level=%s telegram_api_base_url=%s "
-        "config_path=%s state_dir=%s polling_offset_path=%s poll_timeout_seconds=%s",
+        "config_path=%s state_dir=%s polling_offset_path=%s "
+        "polling_pending_update_path=%s poll_timeout_seconds=%s",
         settings.ingress_mode,
         log_level_name,
         settings.telegram_api_base_url,
         settings.config_path,
         settings.state_dir,
         settings.polling_offset_path,
+        settings.polling_pending_update_path,
         settings.poll_timeout_seconds,
     )
     if settings.ingress_mode != "polling":

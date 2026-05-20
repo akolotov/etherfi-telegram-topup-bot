@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from etherfi_bot.domain import SafeTxStatus, TelegramForbiddenError
+from etherfi_bot.domain import SafeTxStatus
 from etherfi_bot.runtime import resolve_log_level
 from etherfi_bot.telegram_adapter import TelegramUpdateAdapter
 from etherfi_bot.telegram_api import _sanitize_payload
@@ -95,7 +95,7 @@ def test_fsm_failure_logs_cover_external_errors_and_admin_delivery(
     admin_failed_harness = harness_factory(make_user(telegram_user_id=8306))
 
     def fail_admin_delivery(*_args: object) -> None:
-        raise TelegramForbiddenError("admin blocked")
+        raise RuntimeError("admin delivery failed")
 
     admin_failed_harness.telegram.send_admin_error = fail_admin_delivery
     admin_failed_harness.fsm.start(admin_failed_harness.user)

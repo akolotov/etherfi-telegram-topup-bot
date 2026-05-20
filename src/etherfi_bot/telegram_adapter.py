@@ -79,7 +79,16 @@ class TelegramUpdateAdapter:
         data = callback_query.get("data")
         action = "ignored_callback"
 
-        if telegram_user_id is not None and message_id is not None:
+        chat = message.get("chat") if isinstance(message, dict) else None
+        chat_id = chat.get("id") if isinstance(chat, dict) else None
+        normalized_chat_id = _optional_int(chat_id)
+        is_private_callback = (
+            _is_private_chat(chat)
+            and telegram_user_id is not None
+            and normalized_chat_id == telegram_user_id
+        )
+
+        if telegram_user_id is not None and message_id is not None and is_private_callback:
             if data == "top_up":
                 self._dispatcher.callback_top_up(telegram_user_id, int(message_id))
                 action = "callback_top_up"
@@ -99,9 +108,11 @@ class TelegramUpdateAdapter:
         else:
             self._logger.debug(
                 "telegram_update_ignored action=ignored_callback telegram_update_id=%s "
-                "telegram_user_id=%s message_id=%s callback_data=%s reason=missing_user_or_message",
+                "telegram_user_id=%s chat_id=%s message_id=%s callback_data=%s "
+                "reason=missing_user_or_message_or_non_private_chat",
                 update_id,
                 telegram_user_id,
+                chat_id,
                 message_id,
                 data,
             )
@@ -205,4 +216,11 @@ def _user_id(user: Any) -> int | None:
     value = user.get("id")
     if value is None:
         return None
-    return int(value)
+    return _optional_int(value)
+
+
+def _optional_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

@@ -41,6 +41,7 @@ class TelegramBotApiClient:
         allowed_updates: list[str],
         limit: int = 100,
     ) -> list[dict[str, Any]]:
+        request_timeout_seconds = max(self._timeout_seconds, int(timeout_seconds) + 5)
         result = self._request(
             "getUpdates",
             {
@@ -49,6 +50,7 @@ class TelegramBotApiClient:
                 "limit": int(limit),
                 "allowed_updates": allowed_updates,
             },
+            timeout_seconds=request_timeout_seconds,
         )
         return list(result)
 
@@ -100,7 +102,13 @@ class TelegramBotApiClient:
             )
         )
 
-    def _request(self, method: str, payload: dict[str, Any]) -> Any:
+    def _request(
+        self,
+        method: str,
+        payload: dict[str, Any],
+        *,
+        timeout_seconds: float | None = None,
+    ) -> Any:
         self._logger.debug(
             "telegram_api_request method=%s payload=%s",
             method,
@@ -113,7 +121,10 @@ class TelegramBotApiClient:
             method="POST",
         )
         try:
-            with urlopen(request, timeout=self._timeout_seconds) as response:
+            with urlopen(
+                request,
+                timeout=self._timeout_seconds if timeout_seconds is None else timeout_seconds,
+            ) as response:
                 body = response.read().decode("utf-8")
         except HTTPError as error:
             if error.code == 403:

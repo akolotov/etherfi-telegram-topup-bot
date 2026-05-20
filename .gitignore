@@ -6,6 +6,7 @@ __pycache__/
 data/user_states/*.json
 data/config.json
 data/polling_offset.json
+data/polling_pending_update.json
 
 .DS_Store
 .ai

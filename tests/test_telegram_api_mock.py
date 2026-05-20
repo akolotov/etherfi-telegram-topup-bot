@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
 
+from etherfi_bot.telegram_api import TelegramBotApiClient
 from tests.smoke.telegram_api_mock import create_server
 
 
@@ -74,6 +75,31 @@ def test_fake_telegram_api_supports_polling_and_webhook_smoke(tmp_path: Path) ->
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_get_updates_http_timeout_exceeds_long_poll_timeout(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"ok": true, "result": []}'
+
+    def fake_urlopen(_request: Request, *, timeout: float):
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr("etherfi_bot.telegram_api.urlopen", fake_urlopen)
+    client = TelegramBotApiClient("123:ABC", timeout_seconds=10)
+
+    assert client.get_updates(offset=0, timeout_seconds=25, allowed_updates=[]) == []
+
+    assert captured["timeout"] == 30
 
 
 def _load_fixture(name: str) -> dict[str, Any]:

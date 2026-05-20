@@ -14,6 +14,7 @@ class RuntimeSettings:
     config_path: Path = Path("data/config.json")
     state_dir: Path = Path("data/user_states")
     polling_offset_path: Path = Path("data/polling_offset.json")
+    polling_pending_update_path: Path = Path("data/polling_pending_update.json")
     poll_timeout_seconds: int = 25
     log_level: str = "INFO"
 
@@ -43,6 +44,12 @@ class RuntimeSettings:
             state_dir=Path(values.get("STATE_DIR", "data/user_states")),
             polling_offset_path=Path(
                 values.get("POLLING_OFFSET_PATH", "data/polling_offset.json")
+            ),
+            polling_pending_update_path=Path(
+                values.get(
+                    "POLLING_PENDING_UPDATE_PATH",
+                    "data/polling_pending_update.json",
+                )
             ),
             poll_timeout_seconds=int(values.get("POLL_TIMEOUT_SECONDS", "25")),
             log_level=values.get("LOG_LEVEL", "INFO"),
