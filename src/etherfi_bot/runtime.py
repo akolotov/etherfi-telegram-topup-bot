@@ -5,13 +5,15 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from etherfi_bot.blockscout import BlockscoutBalanceProvider
 from etherfi_bot.dispatcher import BotDispatcher
-from etherfi_bot.mocks import MockBalanceProvider, MockKeychain, MockSafeWalletClient
+from etherfi_bot.mocks import MockKeychain, MockSafeWalletClient
 from etherfi_bot.polling import (
     JsonPollingOffsetStore,
     JsonPollingPendingUpdateStore,
     PollingBotRunner,
 )
+from etherfi_bot.ports import BalanceProvider
 from etherfi_bot.settings import RuntimeSettings
 from etherfi_bot.storage import JsonConfigRepository, JsonStateRepository
 from etherfi_bot.telegram_adapter import TelegramUpdateAdapter
@@ -30,7 +32,7 @@ class RuntimeComponents:
     dispatcher: BotDispatcher
     adapter: TelegramUpdateAdapter
     runner: PollingBotRunner
-    balances: MockBalanceProvider
+    balances: BalanceProvider
     safe_wallet: MockSafeWalletClient
     keychain: MockKeychain
     clock: SystemClock
@@ -45,7 +47,7 @@ def build_runtime(settings: RuntimeSettings) -> RuntimeComponents:
         base_url=settings.telegram_api_base_url,
     )
     gateway = TelegramBotGateway(api)
-    balances = MockBalanceProvider()
+    balances = BlockscoutBalanceProvider(settings.blockscout_pro_api_key)
     safe_wallet = MockSafeWalletClient()
     keychain = MockKeychain(
         {

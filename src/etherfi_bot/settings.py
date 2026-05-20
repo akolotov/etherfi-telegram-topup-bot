@@ -9,6 +9,7 @@ from typing import Mapping
 @dataclass(frozen=True)
 class RuntimeSettings:
     bot_token: str
+    blockscout_pro_api_key: str
     ingress_mode: str = "polling"
     telegram_api_base_url: str = "https://api.telegram.org"
     config_path: Path = Path("data/config.json")
@@ -30,11 +31,15 @@ class RuntimeSettings:
         bot_token = values.get("BOT_TOKEN", "")
         if not bot_token:
             raise RuntimeError("BOT_TOKEN is required")
+        blockscout_pro_api_key = values.get("BLOCKSCOUT_PRO_API_KEY", "")
+        if not _looks_like_blockscout_key(blockscout_pro_api_key):
+            raise RuntimeError("BLOCKSCOUT_PRO_API_KEY is required")
         ingress_mode = values.get("INGRESS_MODE", "polling")
         if ingress_mode != "polling":
             raise RuntimeError(f"Unsupported INGRESS_MODE={ingress_mode!r}; use 'polling'")
         return cls(
             bot_token=bot_token,
+            blockscout_pro_api_key=blockscout_pro_api_key,
             ingress_mode=ingress_mode,
             telegram_api_base_url=values.get(
                 "TELEGRAM_API_BASE_URL",
@@ -78,3 +83,7 @@ def _strip_env_value(value: str) -> str:
     if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
         return value[1:-1]
     return value
+
+
+def _looks_like_blockscout_key(value: str) -> bool:
+    return value.startswith("proapi_") and value not in {"proapi_", "proapi_..."}
