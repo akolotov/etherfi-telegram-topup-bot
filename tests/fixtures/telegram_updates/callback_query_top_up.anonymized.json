@@ -1,0 +1,48 @@
+{
+  "update_id": 100000004,
+  "callback_query": {
+    "id": "5000000000000000001",
+    "from": {
+      "id": 1001,
+      "is_bot": false,
+      "first_name": "Fixture",
+      "last_name": "User",
+      "username": "fixture_user",
+      "language_code": "en"
+    },
+    "message": {
+      "message_id": 28,
+      "from": {
+        "id": 7999990001,
+        "is_bot": true,
+        "first_name": "ether.fi Test",
+        "username": "etherfi_test_bot"
+      },
+      "chat": {
+        "id": 1001,
+        "first_name": "Fixture",
+        "last_name": "User",
+        "username": "fixture_user",
+        "type": "private"
+      },
+      "date": 1776890256,
+      "text": "Low balance 1",
+      "reply_markup": {
+        "inline_keyboard": [
+          [
+            {
+              "text": "Top Up",
+              "callback_data": "top_up"
+            },
+            {
+              "text": "Ignore",
+              "callback_data": "ignore"
+            }
+          ]
+        ]
+      }
+    },
+    "chat_instance": "900000000000000001",
+    "data": "top_up"
+  }
+}

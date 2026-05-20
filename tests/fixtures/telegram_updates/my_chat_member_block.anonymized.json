@@ -1,0 +1,40 @@
+{
+  "update_id": 100000009,
+  "my_chat_member": {
+    "chat": {
+      "id": 1001,
+      "first_name": "Fixture",
+      "last_name": "User",
+      "username": "fixture_user",
+      "type": "private"
+    },
+    "from": {
+      "id": 1001,
+      "is_bot": false,
+      "first_name": "Fixture",
+      "last_name": "User",
+      "username": "fixture_user",
+      "language_code": "en"
+    },
+    "date": 1776887000,
+    "old_chat_member": {
+      "status": "member",
+      "user": {
+        "id": 7999990001,
+        "is_bot": true,
+        "first_name": "ether.fi Test",
+        "username": "etherfi_test_bot"
+      }
+    },
+    "new_chat_member": {
+      "status": "kicked",
+      "user": {
+        "id": 7999990001,
+        "is_bot": true,
+        "first_name": "ether.fi Test",
+        "username": "etherfi_test_bot"
+      },
+      "until_date": 0
+    }
+  }
+}

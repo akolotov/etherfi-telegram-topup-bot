@@ -1,0 +1,749 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FSM бота пополнения аккаунта: автомат Мили</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --ink: #17202a;
+      --muted: #5b6675;
+      --line: #cfd7e3;
+      --blue: #1f6feb;
+      --green: #1a7f37;
+      --orange: #b45309;
+      --red: #c2410c;
+      --violet: #6f42c1;
+      --cyan: #087990;
+      --shadow: 0 8px 24px rgb(20 30 45 / 8%);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+
+    main {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 32px 20px 56px;
+    }
+
+    h1,
+    h2,
+    h3 {
+      line-height: 1.18;
+      margin: 0;
+    }
+
+    h1 {
+      font-size: clamp(30px, 4vw, 48px);
+      max-width: 920px;
+    }
+
+    h2 {
+      margin-top: 34px;
+      font-size: 24px;
+    }
+
+    h3 {
+      font-size: 18px;
+    }
+
+    p {
+      margin: 10px 0 0;
+      color: var(--muted);
+    }
+
+    code {
+      padding: 2px 6px;
+      border-radius: 5px;
+      background: #eef2f7;
+      color: #263445;
+      font-size: 0.94em;
+    }
+
+    .hero {
+      display: grid;
+      gap: 14px;
+      padding: 28px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .hero p {
+      max-width: 980px;
+      font-size: 17px;
+    }
+
+    .note {
+      margin-top: 18px;
+      padding: 14px 16px;
+      border-left: 4px solid var(--blue);
+      background: #eef6ff;
+      color: #263445;
+      border-radius: 6px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 16px;
+    }
+
+    .card,
+    .table-wrap,
+    .diagram-wrap {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .card {
+      padding: 16px;
+    }
+
+    .card h3 {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 42px;
+      height: 26px;
+      padding: 0 9px;
+      border-radius: 999px;
+      color: #fff;
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 0;
+    }
+
+    .s0 { background: var(--muted); }
+    .s1 { background: var(--blue); }
+    .s2 { background: var(--orange); }
+    .s3 { background: var(--red); }
+    .s4 { background: var(--green); }
+    .sig { background: var(--cyan); }
+
+    .table-wrap {
+      margin-top: 16px;
+      overflow: auto;
+    }
+
+    table {
+      width: 100%;
+      min-width: 880px;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      padding: 11px 12px;
+      border-bottom: 1px solid #e3e8ef;
+      vertical-align: top;
+      text-align: left;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background: #f9fafc;
+      color: #334155;
+      font-weight: 700;
+      z-index: 1;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .diagram-wrap {
+      margin-top: 16px;
+      padding: 12px;
+      overflow: auto;
+    }
+
+    svg {
+      display: block;
+      min-width: 1120px;
+      width: 100%;
+      height: auto;
+      font-family: inherit;
+    }
+
+    .state-box {
+      fill: #fff;
+      stroke-width: 2.2;
+      rx: 8;
+    }
+
+    .state-title {
+      font-weight: 800;
+      font-size: 15px;
+      fill: #111827;
+    }
+
+    .state-subtitle {
+      font-size: 12px;
+      fill: #4b5563;
+    }
+
+    .edge {
+      fill: none;
+      stroke: #526173;
+      stroke-width: 2;
+      marker-end: url(#arrow);
+    }
+
+    .edge-soft {
+      stroke: #8a96a6;
+      stroke-dasharray: 7 5;
+    }
+
+    .edge-label {
+      fill: #17202a;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .edge-action {
+      fill: #5b6675;
+      font-size: 11px;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 14px;
+      margin-top: 16px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .compact-list {
+      margin: 10px 0 0;
+      padding-left: 20px;
+      color: var(--muted);
+    }
+
+    .compact-list li {
+      margin: 6px 0;
+    }
+
+    @media (max-width: 860px) {
+      main {
+        padding: 20px 12px 42px;
+      }
+
+      .hero {
+        padding: 20px;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      table {
+        min-width: 760px;
+      }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <section class="hero">
+    <h1>FSM бота пополнения аккаунта: автомат Мили</h1>
+    <p>
+      Модель описывает один экземпляр автомата на одного сконфигурированного Telegram-пользователя.
+      Глобальный диспетчер сначала проверяет JSON-конфигурацию: если пользователя там нет, <code>start</code>,
+      сообщения и callback-события игнорируются и экземпляр FSM не создается.
+    </p>
+    <div class="note">
+      Это расширенный автомат Мили: состояние определяет режим работы, а выходы выполняются на переходах.
+      Счетчики, deadline cooldown, id последнего кнопочного low-balance сообщения и id Safe-транзакции
+      являются persisted context и восстанавливаются после перезапуска бота. Последний прочитанный баланс не нужен
+      для восстановления FSM и может храниться только как debug/observability поле.
+    </div>
+  </section>
+
+  <h2>Состояния</h2>
+  <section class="grid" aria-label="Состояния FSM">
+    <article class="card">
+      <h3><span class="badge s0">S0</span> NotStarted</h3>
+      <p>Пользователь еще не сделал <code>start</code> или заблокировал бота. Таймеры остановлены, runtime-контекст очищен.</p>
+    </article>
+    <article class="card">
+      <h3><span class="badge s1">S1</span> Monitoring</h3>
+      <p>Активная периодическая проверка баланса target account через <code>balance check interval</code>.</p>
+    </article>
+    <article class="card">
+      <h3><span class="badge s2">S2</span> LowPrompt</h3>
+      <p>Отправлено последнее сообщение о низком балансе с валидными кнопками <code>Top Up</code> и <code>Ignore</code>.</p>
+    </article>
+    <article class="card">
+      <h3><span class="badge s3">S3</span> LowCooldown</h3>
+      <p>Лимит low-balance нотификаций исчерпан. Проверка баланса продолжается, новые low-balance сообщения подавлены до cooldown.</p>
+    </article>
+    <article class="card">
+      <h3><span class="badge s4">S4</span> SafeTxPending</h3>
+      <p>Safe-транзакция создана, пользователь уведомлен. Бот проверяет баланс и статус Safe-транзакции на каждом тике; напоминание о pending-транзакции отправляется без кнопок.</p>
+    </article>
+  </section>
+
+  <h2>Сигналы</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Группа</th>
+          <th>Сигнал</th>
+          <th>Смысл</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Telegram</td>
+          <td><code>START_CONFIGURED</code></td>
+          <td>Сконфигурированный пользователь сделал <code>start</code> или визуальный restart после блокировки.</td>
+        </tr>
+        <tr>
+          <td>Telegram</td>
+          <td><code>START_UNKNOWN</code>, <code>USER_MESSAGE</code>, <code>REPLY</code>, <code>REACTION</code></td>
+          <td>События, которые бот не должен обрабатывать, кроме <code>start</code> от сконфигурированного пользователя в S0.</td>
+        </tr>
+        <tr>
+          <td>Telegram</td>
+          <td><code>CLICK_TOP_UP(latest_message_id)</code>, <code>CLICK_IGNORE(latest_message_id)</code></td>
+          <td>Валидное нажатие на inline-кнопку в последнем low-balance сообщении, которое FSM сейчас ожидает.</td>
+        </tr>
+        <tr>
+          <td>Telegram</td>
+          <td><code>STALE_CALLBACK</code></td>
+          <td>Нажатие на старые кнопки или callback в состоянии, где кнопки не ожидаются.</td>
+        </tr>
+        <tr>
+          <td>Telegram</td>
+          <td><code>USER_BLOCKED</code>, <code>SEND_403</code></td>
+          <td>Пользователь заблокировал бота или Telegram вернул 403 при отправке сообщения пользователю.</td>
+        </tr>
+        <tr>
+          <td>Timer</td>
+          <td><code>BALANCE_TICK</code></td>
+          <td>Периодический тик через <code>target account balance check interval</code>.</td>
+        </tr>
+        <tr>
+          <td>Onchain</td>
+          <td><code>BALANCE_OK</code>, <code>BALANCE_LOW</code>, <code>BALANCE_READ_FAILED</code></td>
+          <td>Результат синхронной проверки баланса Optimism target account на тике или внутри <code>CLICK_TOP_UP</code>: low, ok или ошибка чтения.</td>
+        </tr>
+        <tr>
+          <td>Safe</td>
+          <td><code>SAFE_TX_CREATE_OK</code>, <code>SAFE_TX_CREATE_FAILED</code></td>
+          <td>Результат создания или регистрации транзакции в Safe Wallet сети Arbitrum.</td>
+        </tr>
+        <tr>
+          <td>Safe</td>
+          <td><code>SAFE_TX_PENDING</code>, <code>SAFE_TX_FINAL</code>, <code>SAFE_TX_STATUS_READ_FAILED</code></td>
+          <td>Статус созданной Safe-транзакции: pending, executed/cancelled либо ошибка чтения статуса.</td>
+        </tr>
+        <tr>
+          <td>Lifecycle</td>
+          <td><code>BOT_RESTART</code></td>
+          <td>Перезапуск процесса. FSM восстанавливает persisted state, таймеры и ближайший тик.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Определения guard</h2>
+  <section class="card">
+    <ul class="compact-list">
+      <li><code>BALANCE_LOW</code>: последний прочитанный баланс target account в Optimism строго меньше <code>target account balance threshold</code>.</li>
+      <li><code>BALANCE_OK</code>: последний прочитанный баланс target account в Optimism больше либо равен <code>target account balance threshold</code>.</li>
+      <li><code>freshBalance</code>: баланс target account в Optimism, синхронно прочитанный внутри перехода <code>CLICK_TOP_UP(latest)</code> непосредственно перед расчетом amount и созданием Safe-транзакции.</li>
+      <li><code>low balance notification limit</code> считается количеством отправленных low-balance сообщений в текущем цикле, включая самое первое сообщение.</li>
+      <li>Все user-facing send actions имеют неявную ветку <code>SEND_403</code>: output action прерывается, таймеры пользователя и runtime-контекст очищаются, persisted state сохраняется как <code>S0 NotStarted</code>.</li>
+      <li><code>BOT_RESTART</code>: загрузить persisted context, для всех <code>state != S0</code> пересоздать periodic timer по <code>nextTickAt</code>; если <code>nextTickAt &lt;= now</code>, выполнить тик сразу или запланировать его немедленно.</li>
+      <li>В <code>S4</code> Safe status проверяется независимо от balance read; <code>SAFE_TX_FINAL</code> очищает pending-транзакцию даже если чтение баланса на этом тике завершилось ошибкой.</li>
+      <li>Если в <code>S4</code> баланс прочитан как <code>BALANCE_OK</code>, FSM очищает pending-транзакцию по факту пополнения target account, даже если Safe status на этом тике недоступен.</li>
+    </ul>
+  </section>
+
+  <h2>Диаграмма автомата Мили</h2>
+  <div class="note">
+    Диаграмма обзорная и показывает основные business-flow переходы. Authoritative spec находится в таблице переходов:
+    там явно описаны restart, stale callbacks, ignored user messages/replies/reactions, global block/403 и error branches.
+  </div>
+  <div class="legend" aria-label="Легенда">
+    <span><i class="dot" style="color: #526173"></i>transition label: <code>signal / output action</code></span>
+    <span><i class="dot" style="color: #8a96a6"></i>dashed edge: ignore, error, reset or no-op path</span>
+  </div>
+  <section class="diagram-wrap" aria-label="Диаграмма FSM">
+    <svg viewBox="0 0 1200 850" role="img" aria-labelledby="diagram-title diagram-desc">
+      <title id="diagram-title">Автомат Мили для бота пополнения аккаунта</title>
+      <desc id="diagram-desc">Состояния и основные переходы для одного сконфигурированного пользователя.</desc>
+      <defs>
+        <marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+          <path d="M 1 1 L 11 6 L 1 11 z" fill="#526173"></path>
+        </marker>
+      </defs>
+
+      <!-- States -->
+      <g transform="translate(45 95)">
+        <rect class="state-box" width="185" height="86" stroke="#5b6675"></rect>
+        <text class="state-title" x="18" y="30">S0 NotStarted</text>
+        <text class="state-subtitle" x="18" y="54">no timers</text>
+        <text class="state-subtitle" x="18" y="72">context cleared</text>
+      </g>
+
+      <g transform="translate(350 95)">
+        <rect class="state-box" width="185" height="86" stroke="#1f6feb"></rect>
+        <text class="state-title" x="18" y="30">S1 Monitoring</text>
+        <text class="state-subtitle" x="18" y="54">check balance</text>
+        <text class="state-subtitle" x="18" y="72">each interval</text>
+      </g>
+
+      <g transform="translate(655 95)">
+        <rect class="state-box" width="190" height="86" stroke="#b45309"></rect>
+        <text class="state-title" x="18" y="30">S2 LowPrompt</text>
+        <text class="state-subtitle" x="18" y="54">latest buttons valid</text>
+        <text class="state-subtitle" x="18" y="72">count &lt; limit</text>
+      </g>
+
+      <g transform="translate(960 95)">
+        <rect class="state-box" width="190" height="86" stroke="#c2410c"></rect>
+        <text class="state-title" x="18" y="30">S3 LowCooldown</text>
+        <text class="state-subtitle" x="18" y="54">limit reached</text>
+        <text class="state-subtitle" x="18" y="72">suppress prompts</text>
+      </g>
+
+      <g transform="translate(350 485)">
+        <rect class="state-box" width="195" height="92" stroke="#1a7f37"></rect>
+        <text class="state-title" x="18" y="31">S4 SafeTxPending</text>
+        <text class="state-subtitle" x="18" y="56">tx created</text>
+        <text class="state-subtitle" x="18" y="75">buttonless reminders</text>
+      </g>
+
+      <!-- Main transitions -->
+      <path class="edge" d="M 230 138 C 272 138 302 138 350 138"></path>
+      <text class="edge-label" x="254" y="120">START_CONFIGURED</text>
+      <text class="edge-action" x="254" y="137">/ start timer, persist</text>
+
+      <path class="edge" d="M 535 138 C 578 138 610 138 655 138"></path>
+      <text class="edge-label" x="552" y="116">TICK + LOW + limit&gt;1</text>
+      <text class="edge-action" x="552" y="133">/ send prompt, store msg id, count=1</text>
+
+      <path class="edge" d="M 535 166 C 655 244 840 244 960 166"></path>
+      <text class="edge-label" x="588" y="218">TICK + LOW + limit==1</text>
+      <text class="edge-action" x="588" y="235">/ send prompt, store msg id, set cooldown</text>
+
+      <path class="edge" d="M 845 138 C 886 138 918 138 960 138"></path>
+      <text class="edge-label" x="858" y="116">LOW again + count+1==limit</text>
+      <text class="edge-action" x="858" y="133">/ replace prompt, store msg id, set cooldown</text>
+
+      <path class="edge" d="M 1054 181 C 1054 238 920 245 814 210 C 763 193 735 181 727 181"></path>
+      <text class="edge-label" x="835" y="280">cooldown expired + BALANCE_LOW</text>
+      <text class="edge-action" x="835" y="297">/ replace prompt, store msg id, count=1</text>
+
+      <path class="edge" d="M 750 181 C 698 320 590 445 545 520"></path>
+      <text class="edge-label" x="606" y="337">CLICK_TOP_UP + fresh LOW + create OK</text>
+      <text class="edge-action" x="606" y="354">/ clear msg id, create tx, notify</text>
+
+      <path class="edge" d="M 431 485 C 386 380 386 280 431 181"></path>
+      <text class="edge-label" x="218" y="380">SAFE_FINAL incl read fail OR balance OK</text>
+      <text class="edge-action" x="256" y="397">/ clear pending</text>
+
+      <!-- Return/reset transitions -->
+      <path class="edge edge-soft" d="M 708 95 C 670 35 533 29 474 95"></path>
+      <text class="edge-label" x="516" y="48">BALANCE_OK or IGNORE</text>
+      <text class="edge-action" x="516" y="65">/ remove buttons, clear msg id</text>
+
+      <path class="edge edge-soft" d="M 1008 95 C 879 5 572 5 475 95"></path>
+      <text class="edge-label" x="690" y="18">BALANCE_OK or IGNORE</text>
+      <text class="edge-action" x="690" y="35">/ reset low context</text>
+
+      <path class="edge edge-soft" d="M 433 95 C 393 41 342 49 352 103"></path>
+      <text class="edge-label" x="263" y="44">BALANCE_OK</text>
+      <text class="edge-action" x="263" y="61">/ no-op</text>
+
+      <path class="edge edge-soft" d="M 655 166 C 592 245 486 245 442 181"></path>
+      <text class="edge-label" x="435" y="234">fresh read/create failed</text>
+      <text class="edge-action" x="435" y="251">/ notify admin, reset to monitoring</text>
+
+      <path class="edge edge-soft" d="M 350 532 C 255 515 169 449 137 181"></path>
+      <text class="edge-label" x="104" y="373">USER_BLOCKED or SEND_403</text>
+      <text class="edge-action" x="104" y="390">/ stop timers, clear state</text>
+
+      <path class="edge edge-soft" d="M 350 128 C 279 93 217 82 139 95"></path>
+      <text class="edge-label" x="120" y="73">USER_BLOCKED or SEND_403</text>
+      <text class="edge-action" x="120" y="90">/ clear runtime</text>
+
+      <!-- Self loops -->
+      <path class="edge edge-soft" d="M 441 181 C 381 226 381 283 441 299 C 506 282 506 226 441 181"></path>
+      <text class="edge-label" x="382" y="320">tick read failed without SAFE_FINAL</text>
+      <text class="edge-action" x="382" y="337">/ notify admin, maybe remind</text>
+
+      <path class="edge edge-soft" d="M 748 95 C 706 40 799 18 807 95"></path>
+      <text class="edge-label" x="744" y="35">LOW + count+1 &lt; limit</text>
+      <text class="edge-action" x="744" y="52">/ replace prompt, store msg id</text>
+
+      <path class="edge edge-soft" d="M 1134 181 C 1180 250 1175 337 1112 381 C 1033 344 1032 250 1134 181"></path>
+      <text class="edge-label" x="982" y="398">LOW + cooldown active</text>
+      <text class="edge-action" x="982" y="415">/ no user message</text>
+
+      <path class="edge edge-soft" d="M 388 577 C 331 642 321 721 442 742 C 559 718 558 641 506 577"></path>
+      <text class="edge-label" x="350" y="765">pending + cooldown active</text>
+      <text class="edge-action" x="350" y="782">/ no user message</text>
+
+      <path class="edge" d="M 545 520 C 665 455 691 620 545 562"></path>
+      <text class="edge-label" x="602" y="596">pending + cooldown expired</text>
+      <text class="edge-action" x="602" y="613">/ send tx reminder without buttons</text>
+    </svg>
+  </section>
+
+  <h2>Таблица переходов</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Из состояния</th>
+          <th>Сигнал / guard</th>
+          <th>Выход автомата Мили</th>
+          <th>В состояние</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>S0 NotStarted</code></td>
+          <td><code>START_CONFIGURED</code></td>
+          <td>Очистить runtime-контекст, запустить periodic balance timer, сохранить состояние.</td>
+          <td><code>S1 Monitoring</code></td>
+        </tr>
+        <tr>
+          <td><code>S0 NotStarted</code></td>
+          <td><code>START_UNKNOWN</code>, любые сообщения, stale callbacks</td>
+          <td>Ничего не отправлять и не создавать FSM для неизвестного пользователя.</td>
+          <td><code>S0 NotStarted</code></td>
+        </tr>
+        <tr>
+          <td>Persisted storage</td>
+          <td><code>BOT_RESTART</code></td>
+          <td>Восстановить persisted context, пересоздать periodic timer для всех <code>state != S0</code> по <code>nextTickAt</code>; если <code>nextTickAt &lt;= now</code>, выполнить тик сразу или запланировать немедленно.</td>
+          <td>Восстановленное состояние</td>
+        </tr>
+        <tr>
+          <td><code>S1 Monitoring</code></td>
+          <td><code>BALANCE_TICK + BALANCE_OK</code></td>
+          <td>Обновить <code>lastBalanceCheckedAt</code>, опционально сохранить баланс для debug/observability, продолжить таймер.</td>
+          <td><code>S1 Monitoring</code></td>
+        </tr>
+        <tr>
+          <td><code>S1 Monitoring</code>, <code>S2 LowPrompt</code>, <code>S3 LowCooldown</code></td>
+          <td><code>BALANCE_TICK + BALANCE_READ_FAILED</code></td>
+          <td>Отправить админу сообщение об ошибке, сохранить текущее состояние, кнопки и deadlines, продолжить timer ticks.</td>
+          <td>Без изменения</td>
+        </tr>
+        <tr>
+          <td><code>S1 Monitoring</code></td>
+          <td><code>BALANCE_TICK + BALANCE_LOW + limit &gt; 1</code></td>
+          <td>Отправить low-balance сообщение с кнопками, записать <code>currentMessageId</code>, <code>notificationCount=1</code>.</td>
+          <td><code>S2 LowPrompt</code></td>
+        </tr>
+        <tr>
+          <td><code>S1 Monitoring</code></td>
+          <td><code>BALANCE_TICK + BALANCE_LOW + limit == 1</code></td>
+          <td>Отправить единственное low-balance сообщение с кнопками, записать <code>currentMessageId</code>, <code>notificationCount=1</code>, поставить <code>lowCooldownUntil = sentAt + lowBalanceNotificationCooldownInterval</code>.</td>
+          <td><code>S3 LowCooldown</code></td>
+        </tr>
+        <tr>
+          <td><code>S2 LowPrompt</code></td>
+          <td><code>BALANCE_TICK + BALANCE_LOW + notificationCount + 1 &lt; limit</code></td>
+          <td>Удалить кнопки у предыдущего сообщения, отправить новое low-balance сообщение, записать новый <code>currentMessageId</code>, увеличить счетчик.</td>
+          <td><code>S2 LowPrompt</code></td>
+        </tr>
+        <tr>
+          <td><code>S2 LowPrompt</code></td>
+          <td><code>BALANCE_TICK + BALANCE_LOW + notificationCount + 1 == limit</code></td>
+          <td>Удалить старые кнопки, отправить последнюю разрешенную нотификацию, записать новый <code>currentMessageId</code>, увеличить счетчик до <code>limit</code>, поставить <code>lowCooldownUntil = sentAt + lowBalanceNotificationCooldownInterval</code>.</td>
+          <td><code>S3 LowCooldown</code></td>
+        </tr>
+        <tr>
+          <td><code>S2 LowPrompt</code>, <code>S3 LowCooldown</code></td>
+          <td><code>CLICK_IGNORE(latest)</code> или <code>BALANCE_TICK + BALANCE_OK</code></td>
+          <td>Удалить кнопки у последнего сообщения, очистить <code>currentMessageId</code>, сбросить счетчик и cooldown low-balance нотификаций.</td>
+          <td><code>S1 Monitoring</code></td>
+        </tr>
+        <tr>
+          <td><code>S3 LowCooldown</code></td>
+          <td><code>BALANCE_TICK + BALANCE_LOW + now &lt; lowCooldownUntil</code></td>
+          <td>Не отправлять новое сообщение, продолжить проверять баланс.</td>
+          <td><code>S3 LowCooldown</code></td>
+        </tr>
+        <tr>
+          <td><code>S3 LowCooldown</code></td>
+          <td><code>BALANCE_TICK + BALANCE_LOW + now &gt;= lowCooldownUntil</code></td>
+          <td>Удалить кнопки у предыдущего сообщения, отправить новое low-balance сообщение, записать новый <code>currentMessageId</code>, начать новый цикл счетчика с <code>notificationCount=1</code>; если <code>limit == 1</code>, сразу поставить новый <code>lowCooldownUntil</code>.</td>
+          <td><code>S2 LowPrompt</code> или <code>S3 LowCooldown</code>, если <code>limit == 1</code></td>
+        </tr>
+        <tr>
+          <td><code>S2 LowPrompt</code>, <code>S3 LowCooldown</code></td>
+          <td><code>CLICK_TOP_UP(latest) + fresh BALANCE_READ_FAILED</code></td>
+          <td>Удалить кнопки, очистить <code>currentMessageId</code>, сбросить low-balance счетчик/cooldown, синхронно прочитать свежий баланс target account в Optimism, отправить админу ошибку чтения баланса. Safe-транзакцию не создавать.</td>
+          <td><code>S1 Monitoring</code></td>
+        </tr>
+        <tr>
+          <td><code>S2 LowPrompt</code>, <code>S3 LowCooldown</code></td>
+          <td><code>CLICK_TOP_UP(latest) + fresh BALANCE_OK</code> или <code>amount &lt;= 0</code></td>
+          <td>Удалить кнопки, очистить <code>currentMessageId</code>, сбросить low-balance счетчик/cooldown, синхронно прочитать свежий баланс target account в Optimism, вычислить <code>amount = target account max balance - freshBalance</code>. Если баланс уже ok или amount не положительный, Safe-транзакцию не создавать.</td>
+          <td><code>S1 Monitoring</code></td>
+        </tr>
+        <tr>
+          <td><code>S2 LowPrompt</code>, <code>S3 LowCooldown</code></td>
+          <td><code>CLICK_TOP_UP(latest) + fresh BALANCE_LOW + amount &gt; 0 + SAFE_TX_CREATE_OK</code></td>
+          <td>Удалить кнопки, очистить <code>currentMessageId</code>, сбросить low-balance счетчик/cooldown, синхронно прочитать свежий баланс target account в Optimism, вычислить <code>amount = target account max balance - freshBalance</code>, создать Safe-транзакцию из <code>safe account</code> в Arbitrum с подписью <code>safe owner private key</code> из keychain; recipient равен адресу target account в Arbitrum. Записать <code>pendingSafeTxId</code>, уведомить пользователя без inline-кнопок о необходимости подписи и execute, поставить <code>txReminderUntil = notificationSentAt + lowBalanceNotificationCooldownInterval</code>.</td>
+          <td><code>S4 SafeTxPending</code></td>
+        </tr>
+        <tr>
+          <td><code>S2 LowPrompt</code>, <code>S3 LowCooldown</code></td>
+          <td><code>CLICK_TOP_UP(latest) + fresh BALANCE_LOW + amount &gt; 0 + SAFE_TX_CREATE_FAILED</code></td>
+          <td>Удалить кнопки, очистить <code>currentMessageId</code>, сбросить low-balance контекст, синхронно прочитать свежий баланс target account в Optimism, вычислить amount, попытаться создать Safe-транзакцию, отправить админу ошибку создания Safe-транзакции.</td>
+          <td><code>S1 Monitoring</code></td>
+        </tr>
+        <tr>
+          <td><code>S4 SafeTxPending</code></td>
+          <td><code>BALANCE_TICK + BALANCE_READ_FAILED + SAFE_TX_FINAL</code></td>
+          <td>Отправить админу ошибку чтения баланса. Так как Safe status проверяется независимо и уже final, очистить <code>pendingSafeTxId</code> и tx-cooldown.</td>
+          <td><code>S1 Monitoring</code></td>
+        </tr>
+        <tr>
+          <td><code>S4 SafeTxPending</code></td>
+          <td><code>BALANCE_TICK + BALANCE_READ_FAILED + SAFE_TX_PENDING + now &lt; txReminderUntil</code></td>
+          <td>Отправить админу ошибку чтения баланса, сохранить <code>txReminderUntil</code> и <code>pendingSafeTxId</code>, продолжить timer ticks. Пользователю ничего не отправлять.</td>
+          <td><code>S4 SafeTxPending</code></td>
+        </tr>
+        <tr>
+          <td><code>S4 SafeTxPending</code></td>
+          <td><code>BALANCE_TICK + BALANCE_READ_FAILED + SAFE_TX_PENDING + now &gt;= txReminderUntil</code></td>
+          <td>Отправить админу ошибку чтения баланса. Так как Safe status прочитан как pending и reminder cooldown истек, отправить пользователю напоминание о pending Safe-транзакции без inline-кнопок и обновить <code>txReminderUntil = sentAt + lowBalanceNotificationCooldownInterval</code>.</td>
+          <td><code>S4 SafeTxPending</code></td>
+        </tr>
+        <tr>
+          <td><code>S4 SafeTxPending</code></td>
+          <td><code>BALANCE_TICK + (BALANCE_LOW OR BALANCE_READ_FAILED) + SAFE_TX_STATUS_READ_FAILED</code></td>
+          <td>Отправить админу ошибку проверки статуса Safe-транзакции, сохранить <code>pendingSafeTxId</code> и <code>txReminderUntil</code>, повторить проверку на следующем тике. Если чтение баланса на этом же тике тоже упало, включить эту ошибку в admin notification. Пользователю reminder на этом переходе не отправлять, потому что Safe status неизвестен.</td>
+          <td><code>S4 SafeTxPending</code></td>
+        </tr>
+        <tr>
+          <td><code>S4 SafeTxPending</code></td>
+          <td><code>BALANCE_TICK + BALANCE_OK</code> или <code>BALANCE_TICK + BALANCE_LOW + SAFE_TX_FINAL</code></td>
+          <td>Очистить <code>pendingSafeTxId</code> и tx-cooldown.</td>
+          <td><code>S1 Monitoring</code></td>
+        </tr>
+        <tr>
+          <td><code>S4 SafeTxPending</code></td>
+          <td><code>BALANCE_TICK + BALANCE_LOW + SAFE_TX_PENDING + now &lt; txReminderUntil</code></td>
+          <td>Не отправлять пользовательское сообщение повторно.</td>
+          <td><code>S4 SafeTxPending</code></td>
+        </tr>
+        <tr>
+          <td><code>S4 SafeTxPending</code></td>
+          <td><code>BALANCE_TICK + BALANCE_LOW + SAFE_TX_PENDING + now &gt;= txReminderUntil</code></td>
+          <td>Отправить напоминание о pending Safe-транзакции без inline-кнопок: транзакция уже создана, нужно добавить подпись и выполнить execute. Обновить <code>txReminderUntil = sentAt + lowBalanceNotificationCooldownInterval</code>; <code>currentMessageId</code> не менять.</td>
+          <td><code>S4 SafeTxPending</code></td>
+        </tr>
+        <tr>
+          <td>Любой переход с отправкой сообщения пользователю</td>
+          <td><code>SEND_403</code> во время output action</td>
+          <td>Прервать текущий output action, не считать нотификацию доставленной, остановить timer пользователя, очистить counters/deadlines/message ids/pending tx, сохранить состояние как не стартовавшее.</td>
+          <td><code>S0 NotStarted</code></td>
+        </tr>
+        <tr>
+          <td>Любое активное состояние</td>
+          <td><code>USER_BLOCKED</code></td>
+          <td>Остановить таймеры пользователя, очистить counters/deadlines/message ids/pending tx, сохранить состояние как не стартовавшее.</td>
+          <td><code>S0 NotStarted</code></td>
+        </tr>
+        <tr>
+          <td>Любое активное состояние</td>
+          <td><code>STALE_CALLBACK</code>, <code>USER_MESSAGE</code>, <code>REPLY</code>, <code>REACTION</code>, повторный <code>start</code></td>
+          <td>Игнорировать событие.</td>
+          <td>Без изменения</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Known limitations / future recovery</h2>
+  <section class="card">
+    <ul class="compact-list">
+      <li>Если Safe-транзакция уже создана, но отправка пользователю tx-created notification завершается <code>SEND_403</code>, текущая FSM применяет общую ветку 403: очищает runtime-контекст и сохраняет <code>S0 NotStarted</code>. Это известное ограничение текущей модели.</li>
+      <li>На практике это может потерять знание о существующей <code>pendingSafeTxId</code>, хотя транзакция уже зарегистрирована в Safe Wallet.</li>
+      <li>Future recovery: перед созданием новой Safe-транзакции и/или на <code>START_CONFIGURED</code> делать reconcile через Safe Wallet API и проверять, нет ли уже pending transaction для данного target account/recipient.</li>
+    </ul>
+  </section>
+
+  <h2>Persisted context</h2>
+  <section class="card">
+    <p>Минимальный набор данных, который стоит хранить для восстановления после перезапуска:</p>
+    <ul class="compact-list">
+      <li><code>state</code>: одно из <code>S0..S4</code>.</li>
+      <li><code>notificationCount</code>, <code>lowCooldownUntil</code>, <code>txReminderUntil</code>.</li>
+      <li><code>currentMessageId</code>: только последняя low-balance нотификация с кнопками считается валидной; в <code>S4</code> callbacks не ожидаются.</li>
+      <li><code>pendingSafeTxId</code> и, при необходимости, Safe nonce/hash для проверки статуса.</li>
+      <li><code>lastBalanceCheckedAt</code>, <code>nextTickAt</code>.</li>
+      <li><code>notificationSentAt</code> или производные deadlines, если после restart нужно точно восстановить cooldown-окна.</li>
+      <li>Последний прочитанный баланс можно хранить только как optional/debug поле; восстановление FSM и расчет Safe tx amount от него не зависят.</li>
+      <li>Флаг started можно выводить из <code>state != S0</code>; после block/403 состояние и контекст очищаются.</li>
+    </ul>
+  </section>
+
+  <h2>Инварианты</h2>
+  <section class="card">
+    <ul class="compact-list">
+      <li>Только <code>S2</code> и <code>S3</code> принимают callback от последнего low-balance сообщения с кнопками.</li>
+      <li>Любая отправка пользователю, завершившаяся <code>403</code>, эквивалентна <code>USER_BLOCKED</code>; переход, во время которого случился 403, не считается успешно завершенным.</li>
+      <li>Если баланс стал больше либо равен threshold, low-balance счетчики и cooldown сбрасываются независимо от текущего active/pending режима.</li>
+      <li>Если создание Safe-транзакции не удалось, FSM уведомляет админа и возвращается к обычному мониторингу.</li>
+      <li>При существующем <code>pendingSafeTxId</code> пользовательские callbacks не ожидаются; нажатия на старые <code>Top Up</code>/<code>Ignore</code> считаются stale и игнорируются.</li>
+      <li>Amount Safe-транзакции всегда рассчитывается из <code>freshBalance</code>, прочитанного прямо в переходе <code>CLICK_TOP_UP</code>, а не из сохраненного последнего баланса.</li>
+      <li>После каждого <code>BALANCE_TICK</code> FSM сохраняет новое состояние после перехода и обновленный <code>nextTickAt = tickHandledAt + target account balance check interval</code>.</li>
+      <li>Safe-транзакция создается в Arbitrum из <code>safe account</code>; факт пополнения target account в Optimism определяется только последующими проверками баланса.</li>
+      <li><code>low balance notification limit</code> должен быть не меньше 1; если он равен 1, первое low-balance сообщение сразу переводит FSM в cooldown.</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>

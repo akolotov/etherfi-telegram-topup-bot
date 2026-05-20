@@ -1,0 +1,34 @@
+{
+  "update_id": 100000007,
+  "message_reaction": {
+    "chat": {
+      "id": 1001,
+      "first_name": "Fixture",
+      "last_name": "User",
+      "username": "fixture_user",
+      "type": "private"
+    },
+    "message_id": 30,
+    "user": {
+      "id": 1001,
+      "is_bot": false,
+      "first_name": "Fixture",
+      "last_name": "User",
+      "username": "fixture_user",
+      "language_code": "en"
+    },
+    "date": 1776886539,
+    "old_reaction": [
+      {
+        "type": "emoji",
+        "emoji": "\u2764"
+      }
+    ],
+    "new_reaction": [
+      {
+        "type": "emoji",
+        "emoji": "\ud83d\udc4d"
+      }
+    ]
+  }
+}

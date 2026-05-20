@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.egg-info/
+data/user_states/*.json
+data/config.json
+data/polling_offset.json
+
+.DS_Store
+.ai
+.env

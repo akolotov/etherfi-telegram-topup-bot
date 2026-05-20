@@ -1,0 +1,30 @@
+{
+  "update_id": 100000002,
+  "message": {
+    "message_id": 14,
+    "from": {
+      "id": 1001,
+      "is_bot": false,
+      "first_name": "Fixture",
+      "last_name": "User",
+      "username": "fixture_user",
+      "language_code": "en"
+    },
+    "chat": {
+      "id": 1001,
+      "first_name": "Fixture",
+      "last_name": "User",
+      "username": "fixture_user",
+      "type": "private"
+    },
+    "date": 1776869900,
+    "text": "/start",
+    "entities": [
+      {
+        "offset": 0,
+        "length": 6,
+        "type": "bot_command"
+      }
+    ]
+  }
+}

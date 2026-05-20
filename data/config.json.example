@@ -1,0 +1,29 @@
+  {
+    "admin_telegram_user_id": 9001,
+    "users": [
+      {
+        "telegram_user_id": 1001,
+        "target_account": "0x1111111111111111111111111111111111111111",
+        "balance_token_address": "0x0000000000000000000000000000000000000001",
+        "balance_threshold": "0.25",
+        "target_max_balance": "1.0",
+        "balance_check_interval_seconds": 60,
+        "safe_account": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "safe_owner_key_ref": "safe-owner-1001",
+        "low_balance_notification_limit": 3,
+        "low_balance_notification_cooldown_seconds": 300
+      },
+      {
+        "telegram_user_id": 1002,
+        "target_account": "0x2222222222222222222222222222222222222222",
+        "balance_token_address": "0x0000000000000000000000000000000000000001",
+        "balance_threshold": "0.5",
+        "target_max_balance": "2.0",
+        "balance_check_interval_seconds": 120,
+        "safe_account": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "safe_owner_key_ref": "safe-owner-1002",
+        "low_balance_notification_limit": 3,
+        "low_balance_notification_cooldown_seconds": 600
+      }
+    ]
+  }
