@@ -13,7 +13,7 @@ from etherfi_bot.domain import BotState
 from etherfi_bot.mocks import (
     MockBalanceProvider,
     MockClock,
-    MockKeychain,
+    MockPrivateKeyProvider,
     MockSafeWalletClient,
     MockTelegramGateway,
 )
@@ -50,7 +50,7 @@ def test_polling_runtime_smoke_covers_low_balance_top_up_and_cooldowns(tmp_path:
         gateway = TelegramBotGateway(api)
         balances = MockBalanceProvider()
         safe = MockSafeWalletClient()
-        keychain = MockKeychain({user.safe_owner_key_ref: "private-key"})
+        private_keys = MockPrivateKeyProvider({user.safe_proposer_key_file: "private-key"})
         clock = MockClock()
         dispatcher = BotDispatcher(
             config_repository=JsonConfigRepository(config_path),
@@ -58,7 +58,7 @@ def test_polling_runtime_smoke_covers_low_balance_top_up_and_cooldowns(tmp_path:
             telegram=gateway,
             balances=balances,
             safe_wallet=safe,
-            keychain=keychain,
+            private_keys=private_keys,
             clock=clock,
         )
         adapter = TelegramUpdateAdapter(dispatcher, callback_answerer=api)
@@ -373,7 +373,7 @@ def _make_polling_dispatcher(tmp_path: Path, user):
     telegram = MockTelegramGateway()
     balances = MockBalanceProvider()
     safe = MockSafeWalletClient()
-    keychain = MockKeychain({user.safe_owner_key_ref: "private-key"})
+    private_keys = MockPrivateKeyProvider({user.safe_proposer_key_file: "private-key"})
     clock = MockClock()
     dispatcher = BotDispatcher(
         config_repository=JsonConfigRepository(config_path),
@@ -381,10 +381,10 @@ def _make_polling_dispatcher(tmp_path: Path, user):
         telegram=telegram,
         balances=balances,
         safe_wallet=safe,
-        keychain=keychain,
+        private_keys=private_keys,
         clock=clock,
     )
-    return dispatcher, states, telegram, balances, safe, keychain, clock
+    return dispatcher, states, telegram, balances, safe, private_keys, clock
 
 
 class RecordingPollingApi:

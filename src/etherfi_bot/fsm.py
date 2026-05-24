@@ -18,7 +18,7 @@ from etherfi_bot.domain import (
 from etherfi_bot.ports import (
     BalanceProvider,
     Clock,
-    Keychain,
+    PrivateKeyProvider,
     SafeWalletClient,
     StateRepository,
     TelegramGateway,
@@ -32,7 +32,7 @@ class FsmService:
         telegram: TelegramGateway,
         balances: BalanceProvider,
         safe_wallet: SafeWalletClient,
-        keychain: Keychain,
+        private_keys: PrivateKeyProvider,
         clock: Clock,
         admin_telegram_user_id: int | None,
         logger: logging.Logger | None = None,
@@ -41,7 +41,7 @@ class FsmService:
         self._telegram = telegram
         self._balances = balances
         self._safe_wallet = safe_wallet
-        self._keychain = keychain
+        self._private_keys = private_keys
         self._clock = clock
         self._admin_telegram_user_id = admin_telegram_user_id
         self._logger = logger or logging.getLogger(__name__)
@@ -578,7 +578,11 @@ class FsmService:
 
         amount = user.target_max_balance - fresh_balance
         if self._balance_ok(user, fresh_balance) or amount <= 0:
-            reason = "fresh_balance_ok" if self._balance_ok(user, fresh_balance) else "non_positive_amount"
+            reason = (
+                "fresh_balance_ok"
+                if self._balance_ok(user, fresh_balance)
+                else "non_positive_amount"
+            )
             self._log_user_event(
                 logging.INFO,
                 "top_up_skipped",
@@ -596,9 +600,9 @@ class FsmService:
             return
 
         try:
-            private_key = self._keychain.get_private_key(user.safe_owner_key_ref)
+            private_key = self._private_keys.read_private_key(user.safe_proposer_key_file)
             safe_tx_id = self._safe_wallet.create_top_up_tx(user, amount, private_key)
-        except (KeyError, SafeTxCreateError) as error:
+        except (KeyError, OSError, ValueError, SafeTxCreateError) as error:
             self._log_user_event(
                 logging.ERROR,
                 "safe_tx_creation_failed",
@@ -609,7 +613,7 @@ class FsmService:
                 fresh_balance=fresh_balance,
                 target_max_balance=user.target_max_balance,
                 amount=amount,
-                safe_owner_key_ref=user.safe_owner_key_ref,
+                safe_proposer_key_file=user.safe_proposer_key_file,
                 error_type=type(error).__name__,
                 error=error,
             )
@@ -630,7 +634,7 @@ class FsmService:
             amount=amount,
             fresh_balance=fresh_balance,
             target_max_balance=user.target_max_balance,
-            safe_owner_key_ref=user.safe_owner_key_ref,
+            safe_proposer_key_file=user.safe_proposer_key_file,
         )
         # A Telegram 403 here is intentional state signal: the user blocked the bot
         # after requesting top-up, so callback_top_up resets the user to S0.
@@ -793,7 +797,7 @@ class FsmService:
             "target_account": user.target_account,
             "balance_token_address": user.balance_token_address,
             "safe_account": user.safe_account,
-            "safe_owner_key_ref": user.safe_owner_key_ref,
+            "safe_proposer_key_file": user.safe_proposer_key_file,
         }
         log_fields.update(fields)
         message = event + " " + " ".join(f"{key}=%s" for key in log_fields)

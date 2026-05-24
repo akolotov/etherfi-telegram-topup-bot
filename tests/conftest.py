@@ -16,7 +16,7 @@ from etherfi_bot.fsm import FsmService
 from etherfi_bot.mocks import (
     MockBalanceProvider,
     MockClock,
-    MockKeychain,
+    MockPrivateKeyProvider,
     MockSafeWalletClient,
     MockTelegramGateway,
 )
@@ -30,7 +30,7 @@ class FsmHarness:
     telegram: MockTelegramGateway
     balances: MockBalanceProvider
     safe: MockSafeWalletClient
-    keychain: MockKeychain
+    private_keys: MockPrivateKeyProvider
     clock: MockClock
     fsm: FsmService
 
@@ -53,7 +53,7 @@ def make_user(
         target_max_balance=Decimal(str(max_balance)),
         balance_check_interval_seconds=interval,
         safe_account=f"0x{telegram_user_id + 10000:040x}"[-42:],
-        safe_owner_key_ref=f"safe-owner-{telegram_user_id}",
+        safe_proposer_key_file=f"./.secrets/safe_proposer_private_key_{telegram_user_id}",
         low_balance_notification_limit=limit,
         low_balance_notification_cooldown_seconds=cooldown,
     )
@@ -67,14 +67,14 @@ def harness_factory(tmp_path: Path) -> Callable[..., FsmHarness]:
         telegram = MockTelegramGateway()
         balances = MockBalanceProvider()
         safe = MockSafeWalletClient()
-        keychain = MockKeychain({user_config.safe_owner_key_ref: "private-key"})
+        private_keys = MockPrivateKeyProvider({user_config.safe_proposer_key_file: "private-key"})
         clock = MockClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
         fsm = FsmService(
             state_repository=states,
             telegram=telegram,
             balances=balances,
             safe_wallet=safe,
-            keychain=keychain,
+            private_keys=private_keys,
             clock=clock,
             admin_telegram_user_id=admin_user_id,
         )
@@ -84,7 +84,7 @@ def harness_factory(tmp_path: Path) -> Callable[..., FsmHarness]:
             telegram=telegram,
             balances=balances,
             safe=safe,
-            keychain=keychain,
+            private_keys=private_keys,
             clock=clock,
             fsm=fsm,
         )
@@ -104,7 +104,7 @@ def write_config(path: Path, users: list[UserConfig], admin_user_id: int | None 
                 "target_max_balance": str(user.target_max_balance),
                 "balance_check_interval_seconds": user.balance_check_interval_seconds,
                 "safe_account": user.safe_account,
-                "safe_owner_key_ref": user.safe_owner_key_ref,
+                "safe_proposer_key_file": user.safe_proposer_key_file,
                 "low_balance_notification_limit": user.low_balance_notification_limit,
                 "low_balance_notification_cooldown_seconds": (
                     user.low_balance_notification_cooldown_seconds
@@ -129,7 +129,7 @@ def make_dispatcher(
     MockTelegramGateway,
     MockBalanceProvider,
     MockSafeWalletClient,
-    MockKeychain,
+    MockPrivateKeyProvider,
     MockClock,
 ]:
     config_path = write_config(tmp_path / "config.json", users, admin_user_id)
@@ -137,7 +137,9 @@ def make_dispatcher(
     telegram = MockTelegramGateway()
     balances = MockBalanceProvider()
     safe = MockSafeWalletClient()
-    keychain = MockKeychain({user.safe_owner_key_ref: f"key-{user.telegram_user_id}" for user in users})
+    private_keys = MockPrivateKeyProvider(
+        {user.safe_proposer_key_file: f"key-{user.telegram_user_id}" for user in users}
+    )
     clock = MockClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
     dispatcher = BotDispatcher(
         config_repository=JsonConfigRepository(config_path),
@@ -145,8 +147,8 @@ def make_dispatcher(
         telegram=telegram,
         balances=balances,
         safe_wallet=safe,
-        keychain=keychain,
+        private_keys=private_keys,
         clock=clock,
         logger=logger,
     )
-    return dispatcher, states, telegram, balances, safe, keychain, clock
+    return dispatcher, states, telegram, balances, safe, private_keys, clock

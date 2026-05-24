@@ -45,7 +45,7 @@ class UserConfig:
     target_max_balance: Decimal
     balance_check_interval_seconds: int
     safe_account: str
-    safe_owner_key_ref: str
+    safe_proposer_key_file: str
     low_balance_notification_limit: int
     low_balance_notification_cooldown_seconds: int
 
@@ -54,6 +54,12 @@ class UserConfig:
         balance_token_address = data["balance_token_address"]
         if not isinstance(balance_token_address, str) or not balance_token_address.strip():
             raise ValueError("balance_token_address must be a non-empty string")
+        safe_proposer_key_file = data["safe_proposer_key_file"]
+        if (
+            not isinstance(safe_proposer_key_file, str)
+            or not safe_proposer_key_file.strip()
+        ):
+            raise ValueError("safe_proposer_key_file must be a non-empty string")
         config = cls(
             telegram_user_id=int(data["telegram_user_id"]),
             target_account=str(data["target_account"]),
@@ -62,7 +68,7 @@ class UserConfig:
             target_max_balance=Decimal(str(data["target_max_balance"])),
             balance_check_interval_seconds=int(data["balance_check_interval_seconds"]),
             safe_account=str(data["safe_account"]),
-            safe_owner_key_ref=str(data["safe_owner_key_ref"]),
+            safe_proposer_key_file=safe_proposer_key_file.strip(),
             low_balance_notification_limit=int(data["low_balance_notification_limit"]),
             low_balance_notification_cooldown_seconds=int(
                 data["low_balance_notification_cooldown_seconds"]
@@ -72,8 +78,16 @@ class UserConfig:
         return config
 
     def validate(self) -> None:
-        if not isinstance(self.balance_token_address, str) or not self.balance_token_address.strip():
+        if (
+            not isinstance(self.balance_token_address, str)
+            or not self.balance_token_address.strip()
+        ):
             raise ValueError("balance_token_address must be a non-empty string")
+        if (
+            not isinstance(self.safe_proposer_key_file, str)
+            or not self.safe_proposer_key_file.strip()
+        ):
+            raise ValueError("safe_proposer_key_file must be a non-empty string")
         if self.low_balance_notification_limit < 1:
             raise ValueError("low_balance_notification_limit must be >= 1")
         if self.balance_check_interval_seconds <= 0:

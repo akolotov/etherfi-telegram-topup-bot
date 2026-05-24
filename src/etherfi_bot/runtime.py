@@ -7,13 +7,14 @@ from datetime import datetime, timezone
 
 from etherfi_bot.blockscout import BlockscoutBalanceProvider
 from etherfi_bot.dispatcher import BotDispatcher
-from etherfi_bot.mocks import MockKeychain, MockSafeWalletClient
+from etherfi_bot.mocks import MockSafeWalletClient
 from etherfi_bot.polling import (
     JsonPollingOffsetStore,
     JsonPollingPendingUpdateStore,
     PollingBotRunner,
 )
-from etherfi_bot.ports import BalanceProvider
+from etherfi_bot.ports import BalanceProvider, PrivateKeyProvider
+from etherfi_bot.private_keys import FilePrivateKeyProvider
 from etherfi_bot.settings import RuntimeSettings
 from etherfi_bot.storage import JsonConfigRepository, JsonStateRepository
 from etherfi_bot.telegram_adapter import TelegramUpdateAdapter
@@ -34,7 +35,7 @@ class RuntimeComponents:
     runner: PollingBotRunner
     balances: BalanceProvider
     safe_wallet: MockSafeWalletClient
-    keychain: MockKeychain
+    private_keys: PrivateKeyProvider
     clock: SystemClock
 
 
@@ -49,12 +50,9 @@ def build_runtime(settings: RuntimeSettings) -> RuntimeComponents:
     gateway = TelegramBotGateway(api)
     balances = BlockscoutBalanceProvider(settings.blockscout_pro_api_key)
     safe_wallet = MockSafeWalletClient()
-    keychain = MockKeychain(
-        {
-            user.safe_owner_key_ref: f"mock-private-key:{user.safe_owner_key_ref}"
-            for user in config.users_by_telegram_id.values()
-        }
-    )
+    private_keys = FilePrivateKeyProvider()
+    for user in config.users_by_telegram_id.values():
+        private_keys.read_private_key(user.safe_proposer_key_file)
     clock = SystemClock()
     dispatcher = BotDispatcher(
         config_repository=config_repository,
@@ -62,7 +60,7 @@ def build_runtime(settings: RuntimeSettings) -> RuntimeComponents:
         telegram=gateway,
         balances=balances,
         safe_wallet=safe_wallet,
-        keychain=keychain,
+        private_keys=private_keys,
         clock=clock,
     )
     adapter = TelegramUpdateAdapter(dispatcher, callback_answerer=api)
@@ -84,7 +82,7 @@ def build_runtime(settings: RuntimeSettings) -> RuntimeComponents:
         runner=runner,
         balances=balances,
         safe_wallet=safe_wallet,
-        keychain=keychain,
+        private_keys=private_keys,
         clock=clock,
     )
 

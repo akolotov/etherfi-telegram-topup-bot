@@ -176,7 +176,7 @@ class MockSafeWalletClient:
         self,
         user: UserConfig,
         amount: Decimal,
-        safe_owner_private_key: str,
+        safe_proposer_private_key: str,
     ) -> str:
         if user.telegram_user_id in self.fail_create_for_users:
             raise SafeTxCreateError(f"Could not create Safe tx for {user.telegram_user_id}")
@@ -189,7 +189,7 @@ class MockSafeWalletClient:
                 safe_account=user.safe_account,
                 recipient=user.target_account,
                 amount=amount,
-                private_key=safe_owner_private_key,
+                private_key=safe_proposer_private_key,
             )
         )
         self.statuses[safe_tx_id] = SafeTxStatus.PENDING
@@ -202,14 +202,14 @@ class MockSafeWalletClient:
         return self.statuses.get(safe_tx_id, SafeTxStatus.PENDING)
 
 
-class MockKeychain:
+class MockPrivateKeyProvider:
     def __init__(self, private_keys: dict[str, str] | None = None) -> None:
         self.private_keys = private_keys or {}
         self.requests: list[str] = []
 
-    def get_private_key(self, key_ref: str) -> str:
-        self.requests.append(key_ref)
-        return self.private_keys[key_ref]
+    def read_private_key(self, file_path: str) -> str:
+        self.requests.append(file_path)
+        return self.private_keys[file_path]
 
 
 def _default_balance_token_address() -> str:

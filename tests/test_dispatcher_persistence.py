@@ -11,7 +11,7 @@ from etherfi_bot.domain import BotState, UserState
 from etherfi_bot.mocks import (
     MockBalanceProvider,
     MockClock,
-    MockKeychain,
+    MockPrivateKeyProvider,
     MockSafeWalletClient,
     MockTelegramGateway,
 )
@@ -69,7 +69,7 @@ def test_json_config_repository_rejects_invalid_balance_token_address(
                 "target_max_balance": str(user.target_max_balance),
                 "balance_check_interval_seconds": user.balance_check_interval_seconds,
                 "safe_account": user.safe_account,
-                "safe_owner_key_ref": user.safe_owner_key_ref,
+                "safe_proposer_key_file": user.safe_proposer_key_file,
                 "low_balance_notification_limit": user.low_balance_notification_limit,
                 "low_balance_notification_cooldown_seconds": (
                     user.low_balance_notification_cooldown_seconds
@@ -81,6 +81,41 @@ def test_json_config_repository_rejects_invalid_balance_token_address(
     config_path.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(ValueError, match="balance_token_address must be a non-empty string"):
+        JsonConfigRepository(config_path).load()
+
+
+@pytest.mark.parametrize("invalid_value", [None, "", "   ", 123])
+def test_json_config_repository_rejects_invalid_safe_proposer_key_file(
+    tmp_path,
+    invalid_value,
+) -> None:
+    user = make_user(telegram_user_id=1001)
+    payload = {
+        "admin_telegram_user_id": 9001,
+        "users": [
+            {
+                "telegram_user_id": user.telegram_user_id,
+                "target_account": user.target_account,
+                "balance_token_address": user.balance_token_address,
+                "balance_threshold": str(user.balance_threshold),
+                "target_max_balance": str(user.target_max_balance),
+                "balance_check_interval_seconds": user.balance_check_interval_seconds,
+                "safe_account": user.safe_account,
+                "safe_proposer_key_file": invalid_value,
+                "low_balance_notification_limit": user.low_balance_notification_limit,
+                "low_balance_notification_cooldown_seconds": (
+                    user.low_balance_notification_cooldown_seconds
+                ),
+            }
+        ],
+    }
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match="safe_proposer_key_file must be a non-empty string",
+    ):
         JsonConfigRepository(config_path).load()
 
 
@@ -248,7 +283,9 @@ def test_new_dispatcher_restores_persisted_active_states(tmp_path) -> None:
     telegram = MockTelegramGateway()
     balances = MockBalanceProvider()
     safe = MockSafeWalletClient()
-    keychain = MockKeychain({user.safe_owner_key_ref: f"key-{user.telegram_user_id}" for user in users})
+    private_keys = MockPrivateKeyProvider(
+        {user.safe_proposer_key_file: f"key-{user.telegram_user_id}" for user in users}
+    )
     clock = MockClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
     dispatcher = BotDispatcher(
         config_repository=JsonConfigRepository(config_path),
@@ -256,7 +293,7 @@ def test_new_dispatcher_restores_persisted_active_states(tmp_path) -> None:
         telegram=telegram,
         balances=balances,
         safe_wallet=safe,
-        keychain=keychain,
+        private_keys=private_keys,
         clock=clock,
     )
     for user in users:
@@ -290,7 +327,9 @@ def test_new_dispatcher_restores_persisted_active_states(tmp_path) -> None:
         telegram=MockTelegramGateway(),
         balances=MockBalanceProvider(),
         safe_wallet=MockSafeWalletClient(),
-        keychain=MockKeychain({user.safe_owner_key_ref: f"key-{user.telegram_user_id}" for user in users}),
+        private_keys=MockPrivateKeyProvider(
+            {user.safe_proposer_key_file: f"key-{user.telegram_user_id}" for user in users}
+        ),
         clock=clock,
     )
 
@@ -321,7 +360,9 @@ def test_new_dispatcher_restart_processes_multiple_due_users(tmp_path) -> None:
         telegram=MockTelegramGateway(),
         balances=MockBalanceProvider(),
         safe_wallet=MockSafeWalletClient(),
-        keychain=MockKeychain({user.safe_owner_key_ref: f"key-{user.telegram_user_id}" for user in users}),
+        private_keys=MockPrivateKeyProvider(
+            {user.safe_proposer_key_file: f"key-{user.telegram_user_id}" for user in users}
+        ),
         clock=clock,
     )
     initial_dispatcher.start(user1.telegram_user_id)
@@ -339,7 +380,9 @@ def test_new_dispatcher_restart_processes_multiple_due_users(tmp_path) -> None:
         telegram=telegram,
         balances=balances,
         safe_wallet=MockSafeWalletClient(),
-        keychain=MockKeychain({user.safe_owner_key_ref: f"key-{user.telegram_user_id}" for user in users}),
+        private_keys=MockPrivateKeyProvider(
+            {user.safe_proposer_key_file: f"key-{user.telegram_user_id}" for user in users}
+        ),
         clock=clock,
     )
 

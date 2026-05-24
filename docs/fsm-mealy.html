@@ -633,7 +633,7 @@
         <tr>
           <td><code>S2 LowPrompt</code>, <code>S3 LowCooldown</code></td>
           <td><code>CLICK_TOP_UP(latest) + fresh BALANCE_LOW + amount &gt; 0 + SAFE_TX_CREATE_OK</code></td>
-          <td>Удалить кнопки, очистить <code>currentMessageId</code>, сбросить low-balance счетчик/cooldown, синхронно прочитать свежий баланс target account в Optimism, вычислить <code>amount = target account max balance - freshBalance</code>, создать Safe-транзакцию из <code>safe account</code> в Arbitrum с подписью <code>safe owner private key</code> из keychain; recipient равен адресу target account в Arbitrum. Записать <code>pendingSafeTxId</code>, уведомить пользователя без inline-кнопок о необходимости подписи и execute, поставить <code>txReminderUntil = notificationSentAt + lowBalanceNotificationCooldownInterval</code>.</td>
+          <td>Удалить кнопки, очистить <code>currentMessageId</code>, сбросить low-balance счетчик/cooldown, синхронно прочитать свежий баланс target account в Optimism, вычислить <code>amount = target account max balance - freshBalance</code>, создать Safe-транзакцию из <code>safe account</code> в Arbitrum с подписью <code>safe proposer private key</code>, прочитанным из <code>safe_proposer_key_file</code>; recipient равен адресу target account в Arbitrum. Записать <code>pendingSafeTxId</code>, уведомить пользователя без inline-кнопок о необходимости подписи и execute, поставить <code>txReminderUntil = notificationSentAt + lowBalanceNotificationCooldownInterval</code>.</td>
           <td><code>S4 SafeTxPending</code></td>
         </tr>
         <tr>

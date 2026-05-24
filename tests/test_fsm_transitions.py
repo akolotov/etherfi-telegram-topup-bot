@@ -10,7 +10,7 @@ from etherfi_bot.fsm import FsmService
 from etherfi_bot.mocks import (
     MockBalanceProvider,
     MockClock,
-    MockKeychain,
+    MockPrivateKeyProvider,
     MockSafeWalletClient,
     MockTelegramGateway,
 )
@@ -253,7 +253,7 @@ def test_top_up_success_uses_fresh_balance_and_creates_safe_tx(harness_factory) 
     assert harness.safe.created_txs[0].safe_account == harness.user.safe_account
     assert harness.safe.created_txs[0].recipient == harness.user.target_account
     assert harness.safe.created_txs[0].private_key == "private-key"
-    assert harness.keychain.requests == [harness.user.safe_owner_key_ref]
+    assert harness.private_keys.requests == [harness.user.safe_proposer_key_file]
     assert harness.telegram.messages[-1].kind == "safe_tx_created"
     assert harness.telegram.removed_buttons[-1] == (harness.user.telegram_user_id, message_id)
 
@@ -354,7 +354,7 @@ def test_top_up_safe_create_failed_notifies_admin(harness_factory) -> None:
     assert state.low_cooldown_until is None
     assert state.current_message_id is None
     assert len(harness.safe.created_txs) == 0
-    assert harness.keychain.requests == [harness.user.safe_owner_key_ref]
+    assert harness.private_keys.requests == [harness.user.safe_proposer_key_file]
     assert "Safe tx creation failed" in harness.telegram.admin_errors[-1][1]
 
 
@@ -862,14 +862,14 @@ def test_concurrent_top_up_callbacks_for_one_user_create_one_safe_tx(tmp_path) -
     balances = MockBalanceProvider()
     delegate_safe = MockSafeWalletClient()
     safe = BlockingSafeWalletClient(delegate_safe)
-    keychain = MockKeychain({user.safe_owner_key_ref: "private-key"})
+    private_keys = MockPrivateKeyProvider({user.safe_proposer_key_file: "private-key"})
     clock = MockClock()
     fsm = FsmService(
         state_repository=states,
         telegram=telegram,
         balances=balances,
         safe_wallet=safe,
-        keychain=keychain,
+        private_keys=private_keys,
         clock=clock,
         admin_telegram_user_id=9001,
     )
@@ -913,12 +913,12 @@ class BlockingSafeWalletClient:
         self.release_create = threading.Event()
         self.create_attempts = 0
 
-    def create_top_up_tx(self, user, amount, safe_owner_private_key):
+    def create_top_up_tx(self, user, amount, safe_proposer_private_key):
         self.create_attempts += 1
         if self.create_attempts == 1:
             self.entered_create.set()
             assert self.release_create.wait(timeout=2)
-        return self.delegate.create_top_up_tx(user, amount, safe_owner_private_key)
+        return self.delegate.create_top_up_tx(user, amount, safe_proposer_private_key)
 
     def get_tx_status(self, user, safe_tx_id):
         return self.delegate.get_tx_status(user, safe_tx_id)

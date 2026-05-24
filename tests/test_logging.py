@@ -38,7 +38,10 @@ def test_fsm_happy_path_logs_operational_outcomes(harness_factory, caplog) -> No
     assert _has_event(messages, "safe_tx_pending_reminder_sent")
     assert _has_event(messages, "safe_tx_cleared")
     assert _has_record_at_level(caplog, "low_balance_prompt_sent", logging.INFO)
-    assert any(f"safe_owner_key_ref={harness.user.safe_owner_key_ref}" in message for message in messages)
+    assert any(
+        f"safe_proposer_key_file={harness.user.safe_proposer_key_file}" in message
+        for message in messages
+    )
     assert all("private-key" not in message for message in messages)
 
 

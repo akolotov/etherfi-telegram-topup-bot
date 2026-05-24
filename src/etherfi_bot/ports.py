@@ -42,7 +42,7 @@ class SafeWalletClient(Protocol):
         self,
         user: UserConfig,
         amount: Decimal,
-        safe_owner_private_key: str,
+        safe_proposer_private_key: str,
     ) -> str:
         """Create or register a Safe transaction in Arbitrum."""
 
@@ -50,9 +50,9 @@ class SafeWalletClient(Protocol):
         """Return whether the Safe transaction is pending or final."""
 
 
-class Keychain(Protocol):
-    def get_private_key(self, key_ref: str) -> str:
-        """Return a Safe owner private key by keychain reference."""
+class PrivateKeyProvider(Protocol):
+    def read_private_key(self, file_path: str) -> str:
+        """Read a Safe proposer private key from a configured file path."""
 
 
 class ConfigRepository(Protocol):
