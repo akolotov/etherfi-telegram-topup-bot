@@ -129,6 +129,7 @@ class UserState:
     last_balance_checked_at: datetime | None = None
     next_tick_at: datetime | None = None
     last_balance: Decimal | None = None
+    low_balance_drop_admin_notified: bool = False
 
     @classmethod
     def new(cls, telegram_user_id: int) -> "UserState":
@@ -150,6 +151,9 @@ class UserState:
             last_balance_checked_at=parse_datetime(data.get("last_balance_checked_at")),
             next_tick_at=parse_datetime(data.get("next_tick_at")),
             last_balance=parse_decimal(data.get("last_balance")),
+            low_balance_drop_admin_notified=bool(
+                data.get("low_balance_drop_admin_notified", False)
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -164,6 +168,7 @@ class UserState:
             "last_balance_checked_at": format_datetime(self.last_balance_checked_at),
             "next_tick_at": format_datetime(self.next_tick_at),
             "last_balance": format_decimal(self.last_balance),
+            "low_balance_drop_admin_notified": self.low_balance_drop_admin_notified,
         }
 
     def reset_runtime(self) -> None:
@@ -176,6 +181,7 @@ class UserState:
         self.last_balance_checked_at = None
         self.next_tick_at = None
         self.last_balance = None
+        self.low_balance_drop_admin_notified = False
 
 
 def ensure_utc(value: datetime) -> datetime:

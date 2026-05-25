@@ -246,6 +246,7 @@ def test_json_state_repository_round_trips_datetime_and_decimal(tmp_path) -> Non
         last_balance_checked_at=now,
         next_tick_at=now + timedelta(seconds=60),
         last_balance=Decimal("0.123456789"),
+        low_balance_drop_admin_notified=True,
     )
 
     repository.save(state)
@@ -255,6 +256,7 @@ def test_json_state_repository_round_trips_datetime_and_decimal(tmp_path) -> Non
     assert loaded.low_cooldown_until == state.low_cooldown_until
     assert loaded.tx_reminder_until == state.tx_reminder_until
     assert loaded.last_balance == Decimal("0.123456789")
+    assert loaded.low_balance_drop_admin_notified is True
 
 
 def test_restart_runs_due_ticks_from_persisted_state(tmp_path) -> None:

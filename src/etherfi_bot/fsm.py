@@ -265,6 +265,13 @@ class FsmService:
             return
 
         assert balance is not None
+        previous_balance = state.last_balance
+        self._handle_admin_balance_drop_notification(
+            user,
+            state,
+            balance,
+            previous_balance,
+        )
         state.last_balance = balance
         if state.state is BotState.SAFE_TX_PENDING:
             if safe_status_error is not None:
@@ -636,6 +643,16 @@ class FsmService:
             target_max_balance=user.target_max_balance,
             safe_proposer_key_file=user.safe_proposer_key_file,
         )
+        self._notify_admin(
+            "Safe tx created for top up: "
+            f"user {user.telegram_user_id}, "
+            f"target account {user.target_account}, "
+            f"safe account {user.safe_account}, "
+            f"token {user.balance_token_address}, "
+            f"fresh balance {fresh_balance}, "
+            f"amount {amount}, "
+            f"safe tx {safe_tx_id}"
+        )
         # A Telegram 403 here is intentional state signal: the user blocked the bot
         # after requesting top-up, so callback_top_up resets the user to S0.
         self._telegram.send_safe_tx_created(user, safe_tx_id)
@@ -749,6 +766,42 @@ class FsmService:
     ) -> None:
         state.last_balance_checked_at = handled_at
         state.next_tick_at = handled_at + self._tick_delta(user)
+
+    def _handle_admin_balance_drop_notification(
+        self,
+        user: UserConfig,
+        state: UserState,
+        balance: Decimal,
+        previous_balance: Decimal | None,
+    ) -> None:
+        if self._balance_ok(user, balance):
+            state.low_balance_drop_admin_notified = False
+            return
+        if previous_balance is None:
+            return
+        if state.low_balance_drop_admin_notified:
+            return
+        if balance >= previous_balance:
+            return
+
+        state.low_balance_drop_admin_notified = True
+        self._log_user_event(
+            logging.INFO,
+            "low_balance_drop_admin_notified",
+            user,
+            previous_balance=previous_balance,
+            balance=balance,
+            threshold=user.balance_threshold,
+        )
+        self._notify_admin(
+            "Target account balance dropped below threshold: "
+            f"user {user.telegram_user_id}, "
+            f"target account {user.target_account}, "
+            f"token {user.balance_token_address}, "
+            f"previous balance {previous_balance}, "
+            f"current balance {balance}, "
+            f"threshold {user.balance_threshold}"
+        )
 
     def _notify_admin(self, message: str) -> None:
         if self._admin_telegram_user_id is None:
