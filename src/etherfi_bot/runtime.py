@@ -5,16 +5,20 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from etherfi_bot.blockscout import BlockscoutBalanceProvider
+from etherfi_bot.blockscout import BlockscoutBalanceProvider, BlockscoutJsonRpcClient
 from etherfi_bot.dispatcher import BotDispatcher
-from etherfi_bot.mocks import MockSafeWalletClient
 from etherfi_bot.polling import (
     JsonPollingOffsetStore,
     JsonPollingPendingUpdateStore,
     PollingBotRunner,
 )
-from etherfi_bot.ports import BalanceProvider, PrivateKeyProvider
+from etherfi_bot.ports import BalanceProvider, PrivateKeyProvider, SafeWalletClient
 from etherfi_bot.private_keys import FilePrivateKeyProvider
+from etherfi_bot.safe_wallet import (
+    AaveV3NativeUsdcWithdrawPreparer,
+    SafeTxServiceClient,
+    SafeWalletTransactionServiceClient,
+)
 from etherfi_bot.settings import RuntimeSettings
 from etherfi_bot.storage import JsonConfigRepository, JsonStateRepository
 from etherfi_bot.telegram_adapter import TelegramUpdateAdapter
@@ -34,7 +38,7 @@ class RuntimeComponents:
     adapter: TelegramUpdateAdapter
     runner: PollingBotRunner
     balances: BalanceProvider
-    safe_wallet: MockSafeWalletClient
+    safe_wallet: SafeWalletClient
     private_keys: PrivateKeyProvider
     clock: SystemClock
 
@@ -49,7 +53,15 @@ def build_runtime(settings: RuntimeSettings) -> RuntimeComponents:
     )
     gateway = TelegramBotGateway(api)
     balances = BlockscoutBalanceProvider(settings.blockscout_pro_api_key)
-    safe_wallet = MockSafeWalletClient()
+    blockscout_rpc = BlockscoutJsonRpcClient(settings.blockscout_pro_api_key)
+    top_up_preparer = AaveV3NativeUsdcWithdrawPreparer(blockscout_rpc)
+    safe_wallet = SafeWalletTransactionServiceClient(
+        SafeTxServiceClient(
+            settings.safe_transaction_service_api_key,
+            base_url=settings.safe_tx_service_base_url,
+        ),
+        top_up_preparer,
+    )
     private_keys = FilePrivateKeyProvider()
     for user in config.users_by_telegram_id.values():
         private_keys.read_private_key(user.safe_proposer_key_file)

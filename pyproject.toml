@@ -7,7 +7,15 @@ name = "etherfi-bot"
 version = "0.1.0"
 description = "FSM core for an ether.fi Telegram top-up bot"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "eth-abi>=5.2.0",
+    "eth-account>=0.13.7",
+    "hexbytes>=1.3.1",
+    "packaging>=26.0",
+    "requests>=2.34.0",
+    "safe-eth-py>=7.20.0",
+    "web3>=7.16.0",
+]
 
 [project.scripts]
 etherfi-bot = "etherfi_bot.runtime:main"

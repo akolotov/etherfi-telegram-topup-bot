@@ -5,7 +5,7 @@ import time
 from datetime import timedelta
 from decimal import Decimal
 
-from etherfi_bot.domain import BotState, SafeTxStatus
+from etherfi_bot.domain import BotState, SafeTxCreateError, SafeTxStatus
 from etherfi_bot.fsm import FsmService
 from etherfi_bot.mocks import (
     MockBalanceProvider,
@@ -356,6 +356,21 @@ def test_top_up_safe_create_failed_notifies_admin(harness_factory) -> None:
     assert len(harness.safe.created_txs) == 0
     assert harness.private_keys.requests == [harness.user.safe_proposer_key_file]
     assert "Safe tx creation failed" in harness.telegram.admin_errors[-1][1]
+
+
+def test_top_up_safe_preflight_failed_notifies_admin_and_returns_to_monitoring(
+    harness_factory,
+) -> None:
+    harness = harness_factory()
+    harness.fsm._safe_wallet = PreflightFailingSafeWalletClient()
+    message_id = make_low_prompt(harness, "1")
+
+    state = harness.fsm.callback_top_up(harness.user, message_id)
+
+    assert state.state is BotState.MONITORING
+    assert state.pending_safe_tx_id is None
+    assert state.current_message_id is None
+    assert "AAVE preflight balance check failed" in harness.telegram.admin_errors[-1][1]
 
 
 def test_top_up_from_s3_uses_same_safe_tx_path_as_s2(harness_factory) -> None:
@@ -922,6 +937,16 @@ class BlockingSafeWalletClient:
 
     def get_tx_status(self, user, safe_tx_id):
         return self.delegate.get_tx_status(user, safe_tx_id)
+
+
+class PreflightFailingSafeWalletClient:
+    def create_top_up_tx(self, user, amount, safe_proposer_private_key):
+        del user, amount, safe_proposer_private_key
+        raise SafeTxCreateError("AAVE preflight balance check failed")
+
+    def get_tx_status(self, user, safe_tx_id):
+        del user, safe_tx_id
+        return SafeTxStatus.PENDING
 
 
 def test_send_403_from_safe_tx_created_resets_to_not_started(harness_factory) -> None:

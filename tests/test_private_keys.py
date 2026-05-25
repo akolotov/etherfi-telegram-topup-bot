@@ -7,6 +7,7 @@ import pytest
 
 from etherfi_bot.private_keys import FilePrivateKeyProvider, SECP256K1_ORDER
 from etherfi_bot.runtime import build_runtime
+from etherfi_bot.safe_wallet import SafeWalletTransactionServiceClient
 from etherfi_bot.settings import RuntimeSettings
 from tests.conftest import make_user, write_config
 
@@ -85,6 +86,7 @@ def test_build_runtime_validates_configured_private_key_files(tmp_path: Path) ->
     settings = RuntimeSettings(
         bot_token="123:ABC",
         blockscout_pro_api_key="proapi_test",
+        safe_transaction_service_api_key="safe-api-key",
         telegram_api_base_url="http://127.0.0.1",
         config_path=config_path,
         state_dir=tmp_path / "states",
@@ -94,3 +96,27 @@ def test_build_runtime_validates_configured_private_key_files(tmp_path: Path) ->
 
     with pytest.raises(FileNotFoundError):
         build_runtime(settings)
+
+
+def test_build_runtime_wires_real_safe_wallet_client(tmp_path: Path) -> None:
+    key_path = tmp_path / "safe_proposer_private_key"
+    key_path.write_text(f"{1:064x}", encoding="utf-8")
+    user = replace(
+        make_user(telegram_user_id=1001),
+        safe_proposer_key_file=str(key_path),
+    )
+    config_path = write_config(tmp_path / "config.json", [user])
+    settings = RuntimeSettings(
+        bot_token="123:ABC",
+        blockscout_pro_api_key="proapi_test",
+        safe_transaction_service_api_key="safe-api-key",
+        telegram_api_base_url="http://127.0.0.1",
+        config_path=config_path,
+        state_dir=tmp_path / "states",
+        polling_offset_path=tmp_path / "polling-offset.json",
+        polling_pending_update_path=tmp_path / "polling-pending-update.json",
+    )
+
+    components = build_runtime(settings)
+
+    assert isinstance(components.safe_wallet, SafeWalletTransactionServiceClient)

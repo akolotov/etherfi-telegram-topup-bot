@@ -6,7 +6,12 @@ from urllib.error import HTTPError, URLError
 
 import pytest
 
-from etherfi_bot.blockscout import BlockscoutBalanceProvider, USER_AGENT
+from etherfi_bot.blockscout import (
+    BlockscoutBalanceProvider,
+    BlockscoutJsonRpcClient,
+    BlockscoutJsonRpcError,
+    USER_AGENT,
+)
 from etherfi_bot.domain import BalanceReadError
 from tests.conftest import make_user
 
@@ -178,6 +183,71 @@ def test_blockscout_balance_provider_wraps_response_and_request_errors(
 
     with pytest.raises(BalanceReadError):
         provider.get_balance(make_user())
+
+
+def test_blockscout_json_rpc_client_sends_eth_call_request_and_returns_result() -> None:
+    opener = RecordingOpener(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": "0x000000000000000000000000000000000000000000000000000000000000007b",
+        }
+    )
+    client = BlockscoutJsonRpcClient("proapi_test", opener=opener)
+
+    result = client.eth_call(
+        to="0x724dc807b04555b71ed48a6896b6F41593b8C637",
+        data=b"\x12\x34",
+    )
+
+    assert result == "0x000000000000000000000000000000000000000000000000000000000000007b"
+    request = opener.requests[0]
+    assert request.full_url == "https://api.blockscout.com/42161/json-rpc"
+    headers = _normalized_headers(request.header_items())
+    assert headers["authorization"] == "Bearer proapi_test"
+    assert headers["accept"] == "application/json"
+    assert headers["content-type"] == "application/json"
+    assert headers["user-agent"] == USER_AGENT
+    body = json.loads(request.data.decode("utf-8"))
+    assert body == {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_call",
+        "params": [
+            {
+                "to": "0x724dc807b04555b71ed48a6896b6F41593b8C637",
+                "data": "0x1234",
+            },
+            "latest",
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "opener_factory",
+    [
+        lambda: RecordingOpener(raw_body="{not-json"),
+        lambda: RecordingOpener({"jsonrpc": "2.0", "id": 1, "result": 123}),
+        lambda: RecordingOpener({"jsonrpc": "2.0", "id": 1, "error": {"code": -1}}),
+        lambda: RecordingOpener(
+            error=HTTPError(
+                "https://api.blockscout.com",
+                500,
+                "Internal Server Error",
+                None,
+                None,
+            )
+        ),
+        lambda: RecordingOpener(error=URLError("network unavailable")),
+    ],
+)
+def test_blockscout_json_rpc_client_wraps_response_and_request_errors(
+    opener_factory,
+) -> None:
+    client = BlockscoutJsonRpcClient("proapi_test", opener=opener_factory())
+
+    with pytest.raises(BlockscoutJsonRpcError):
+        client.eth_call(to="0x724dc807b04555b71ed48a6896b6F41593b8C637", data="0x1234")
 
 
 class RecordingOpener:

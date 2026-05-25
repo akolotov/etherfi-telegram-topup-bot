@@ -10,8 +10,10 @@ from typing import Mapping
 class RuntimeSettings:
     bot_token: str
     blockscout_pro_api_key: str
+    safe_transaction_service_api_key: str
     ingress_mode: str = "polling"
     telegram_api_base_url: str = "https://api.telegram.org"
+    safe_tx_service_base_url: str = "https://api.safe.global/tx-service/arb1"
     config_path: Path = Path("data/config.json")
     state_dir: Path = Path("data/user_states")
     polling_offset_path: Path = Path("data/polling_offset.json")
@@ -34,16 +36,29 @@ class RuntimeSettings:
         blockscout_pro_api_key = values.get("BLOCKSCOUT_PRO_API_KEY", "")
         if not _looks_like_blockscout_key(blockscout_pro_api_key):
             raise RuntimeError("BLOCKSCOUT_PRO_API_KEY is required")
+        safe_transaction_service_api_key = values.get(
+            "SAFE_TRANSACTION_SERVICE_API_KEY",
+            "",
+        )
+        if not _looks_like_safe_transaction_service_key(
+            safe_transaction_service_api_key
+        ):
+            raise RuntimeError("SAFE_TRANSACTION_SERVICE_API_KEY is required")
         ingress_mode = values.get("INGRESS_MODE", "polling")
         if ingress_mode != "polling":
             raise RuntimeError(f"Unsupported INGRESS_MODE={ingress_mode!r}; use 'polling'")
         return cls(
             bot_token=bot_token,
             blockscout_pro_api_key=blockscout_pro_api_key,
+            safe_transaction_service_api_key=safe_transaction_service_api_key,
             ingress_mode=ingress_mode,
             telegram_api_base_url=values.get(
                 "TELEGRAM_API_BASE_URL",
                 "https://api.telegram.org",
+            ),
+            safe_tx_service_base_url=values.get(
+                "SAFE_TX_SERVICE_BASE_URL",
+                "https://api.safe.global/tx-service/arb1",
             ),
             config_path=Path(values.get("CONFIG_PATH", "data/config.json")),
             state_dir=Path(values.get("STATE_DIR", "data/user_states")),
@@ -87,3 +102,7 @@ def _strip_env_value(value: str) -> str:
 
 def _looks_like_blockscout_key(value: str) -> bool:
     return value.startswith("proapi_") and value not in {"proapi_", "proapi_..."}
+
+
+def _looks_like_safe_transaction_service_key(value: str) -> bool:
+    return bool(value and value.strip() and value.strip() != "...")

@@ -62,6 +62,77 @@ class BlockscoutBalanceProvider:
             raise BalanceReadError("Blockscout balance response is invalid") from error
 
 
+class BlockscoutJsonRpcError(RuntimeError):
+    """A Blockscout PRO JSON-RPC request failed or returned invalid data."""
+
+
+class BlockscoutJsonRpcClient:
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        base_url: str = BLOCKSCOUT_BASE_URL,
+        chain_id: str = "42161",
+        timeout_seconds: float = 10,
+        opener: Callable[..., Any] = urlopen,
+    ) -> None:
+        if not api_key:
+            raise ValueError("api_key must not be empty")
+        self._api_key = api_key
+        self._base_url = base_url.rstrip("/")
+        self._chain_id = str(chain_id)
+        self._timeout_seconds = timeout_seconds
+        self._opener = opener
+
+    def eth_call(self, *, to: str, data: bytes | str, block: str = "latest") -> str:
+        data_hex = data.hex() if isinstance(data, bytes) else data
+        if not data_hex.startswith("0x"):
+            data_hex = f"0x{data_hex}"
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "eth_call",
+            "params": [{"to": to, "data": data_hex}, block],
+        }
+        request = Request(
+            f"{self._base_url}/{quote(self._chain_id, safe='')}/json-rpc",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {self._api_key}",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "User-Agent": USER_AGENT,
+            },
+            method="POST",
+        )
+        try:
+            with self._opener(request, timeout=self._timeout_seconds) as response:
+                body = response.read().decode("utf-8")
+            rpc_response = json.loads(body)
+            return _extract_eth_call_result(rpc_response)
+        except HTTPError as error:
+            raise BlockscoutJsonRpcError(
+                f"Blockscout JSON-RPC request failed with HTTP {error.code}"
+            ) from error
+        except (URLError, OSError) as error:
+            raise BlockscoutJsonRpcError("Blockscout JSON-RPC request failed") from error
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            raise BlockscoutJsonRpcError(
+                "Blockscout JSON-RPC response is invalid"
+            ) from error
+
+
+def _extract_eth_call_result(data: Any) -> str:
+    if not isinstance(data, dict):
+        raise ValueError("JSON-RPC response must be an object")
+    if "error" in data:
+        raise ValueError(f"JSON-RPC error response: {data['error']!r}")
+    result = data.get("result")
+    if not isinstance(result, str) or not result.startswith("0x"):
+        raise ValueError("JSON-RPC result must be a 0x-prefixed string")
+    return result
+
+
 def _extract_token_balance(data: Any, token_address: str) -> Decimal:
     if not isinstance(data, list):
         raise ValueError("token balance response must be a list")
