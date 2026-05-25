@@ -100,6 +100,11 @@ class PollingBotRunner:
             self._poll_timeout_seconds,
             ",".join(ALLOWED_UPDATES),
         )
+        recovered_user_ids = self._dispatcher.recover_missing_user_states()
+        self._logger.info(
+            "polling_setup_state_recovery recovered_user_count=%s",
+            len(recovered_user_ids),
+        )
         self._started = True
 
     def run_forever(self) -> None:

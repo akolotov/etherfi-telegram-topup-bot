@@ -43,6 +43,9 @@ class MockTelegramGateway:
         self.messages: list[MockTelegramMessage] = []
         self.removed_buttons: list[tuple[int, int]] = []
         self.admin_errors: list[tuple[int, str]] = []
+        self.private_chat_checks: list[int] = []
+        self.unreachable_private_chat_user_ids: set[int] = set()
+        self.private_chat_check_errors: dict[int, Exception] = {}
         self.forbidden_user_ids: set[int] = set()
         self.forbidden_operations_by_user: dict[int, set[str]] = {}
         self._next_message_id = 1
@@ -95,6 +98,14 @@ class MockTelegramGateway:
 
     def send_admin_error(self, admin_telegram_user_id: int, message: str) -> None:
         self.admin_errors.append((int(admin_telegram_user_id), message))
+
+    def can_reach_private_chat(self, telegram_user_id: int) -> bool:
+        normalized_user_id = int(telegram_user_id)
+        self.private_chat_checks.append(normalized_user_id)
+        error = self.private_chat_check_errors.get(normalized_user_id)
+        if error is not None:
+            raise error
+        return normalized_user_id not in self.unreachable_private_chat_user_ids
 
     def forbid_operation(self, telegram_user_id: int, operation: str) -> None:
         operations = self.forbidden_operations_by_user.setdefault(int(telegram_user_id), set())

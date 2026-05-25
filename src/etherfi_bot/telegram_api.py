@@ -13,6 +13,17 @@ from etherfi_bot.domain import TelegramForbiddenError, UserConfig
 class TelegramApiError(RuntimeError):
     """Telegram Bot API returned an unsuccessful response."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_code: int | None = None,
+        description: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+        self.description = description
+
 
 class TelegramBotApiClient:
     def __init__(
@@ -32,6 +43,9 @@ class TelegramBotApiClient:
 
     def get_me(self) -> dict[str, Any]:
         return dict(self._request("getMe", {}))
+
+    def get_chat(self, *, chat_id: int) -> dict[str, Any]:
+        return dict(self._request("getChat", {"chat_id": int(chat_id)}))
 
     def get_updates(
         self,
@@ -127,21 +141,32 @@ class TelegramBotApiClient:
             ) as response:
                 body = response.read().decode("utf-8")
         except HTTPError as error:
-            if error.code == 403:
+            error_data = _http_error_data(error)
+            error_code = _telegram_error_code(error_data, fallback=error.code)
+            description = _telegram_error_description(error_data)
+            if error_code == 403:
                 self._logger.warning(
-                    "telegram_api_request_failed method=%s status_code=%s error_type=%s",
+                    "telegram_api_request_failed method=%s status_code=%s description=%s error_type=%s",
                     method,
-                    error.code,
+                    error_code,
+                    description,
                     type(error).__name__,
                 )
-                raise TelegramForbiddenError("Telegram Bot API returned 403") from error
+                raise TelegramForbiddenError(
+                    description or "Telegram Bot API returned 403"
+                ) from error
             self._logger.warning(
-                "telegram_api_request_failed method=%s status_code=%s error_type=%s",
+                "telegram_api_request_failed method=%s status_code=%s description=%s error_type=%s",
                 method,
-                error.code,
+                error_code,
+                description,
                 type(error).__name__,
             )
-            raise TelegramApiError(f"Telegram Bot API HTTP {error.code} for {method}") from error
+            raise TelegramApiError(
+                f"Telegram Bot API HTTP {error.code} for {method}",
+                error_code=error_code,
+                description=description,
+            ) from error
         except URLError as error:
             self._logger.warning(
                 "telegram_api_request_failed method=%s error_type=%s error=%s",
@@ -153,24 +178,28 @@ class TelegramBotApiClient:
 
         data = json.loads(body or "{}")
         if data.get("ok") is not True:
-            if data.get("error_code") == 403:
+            error_code = _telegram_error_code(data)
+            description = _telegram_error_description(data)
+            if error_code == 403:
                 self._logger.warning(
                     "telegram_api_request_failed method=%s status_code=%s description=%s",
                     method,
-                    data.get("error_code"),
-                    data.get("description"),
+                    error_code,
+                    description,
                 )
                 raise TelegramForbiddenError(
-                    str(data.get("description", "Telegram Bot API returned 403"))
+                    description or "Telegram Bot API returned 403"
                 )
             self._logger.warning(
                 "telegram_api_request_failed method=%s status_code=%s description=%s",
                 method,
-                data.get("error_code"),
-                data.get("description"),
+                error_code,
+                description,
             )
             raise TelegramApiError(
-                f"Telegram Bot API {method} failed: {data.get('description', data)}"
+                f"Telegram Bot API {method} failed: {description or data}",
+                error_code=error_code,
+                description=description,
             )
         return data.get("result")
 
@@ -188,6 +217,41 @@ def _sanitize_payload_value(value: Any) -> Any:
     if isinstance(value, list):
         return [_sanitize_payload_value(item) for item in value]
     return value
+
+
+def _http_error_data(error: HTTPError) -> dict[str, Any]:
+    try:
+        body = error.read().decode("utf-8")
+    except Exception:
+        return {}
+    if not body:
+        return {}
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _telegram_error_code(
+    data: dict[str, Any],
+    *,
+    fallback: int | None = None,
+) -> int | None:
+    raw_code = data.get("error_code", fallback)
+    if raw_code is None:
+        return None
+    try:
+        return int(raw_code)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _telegram_error_description(data: dict[str, Any]) -> str | None:
+    description = data.get("description")
+    if description is None:
+        return None
+    return str(description)
 
 
 class TelegramBotGateway:
@@ -245,3 +309,19 @@ class TelegramBotGateway:
 
     def send_admin_error(self, admin_telegram_user_id: int, message: str) -> None:
         self._api.send_message(chat_id=admin_telegram_user_id, text=message)
+
+    def can_reach_private_chat(self, telegram_user_id: int) -> bool:
+        try:
+            self._api.get_chat(chat_id=telegram_user_id)
+        except TelegramForbiddenError:
+            return False
+        except TelegramApiError as error:
+            if _is_chat_not_found(error):
+                return False
+            raise
+        return True
+
+
+def _is_chat_not_found(error: TelegramApiError) -> bool:
+    description = (error.description or "").lower()
+    return error.error_code == 400 and "chat not found" in description

@@ -30,6 +30,7 @@ class BotDispatcher:
     ) -> None:
         self._config_repository = config_repository
         self._states = state_repository
+        self._telegram = telegram
         self._clock = clock
         self._logger = logger or logging.getLogger(__name__)
         self.config: BotConfig = self._config_repository.load()
@@ -99,6 +100,38 @@ class BotDispatcher:
             self._log_unknown_user("ignore_event", telegram_user_id)
             return None
         return self.fsm.ignore_event(user)
+
+    def recover_missing_user_states(self) -> list[int]:
+        persisted_user_ids = {state.telegram_user_id for state in self._states.list_states()}
+        recovered_user_ids: list[int] = []
+        for user in self.config.users_by_telegram_id.values():
+            if user.telegram_user_id in persisted_user_ids:
+                continue
+            try:
+                can_reach_user = self._telegram.can_reach_private_chat(user.telegram_user_id)
+            except Exception as error:
+                self._logger.warning(
+                    "missing_user_state_recovery_failed telegram_user_id=%s error_type=%s error=%s",
+                    user.telegram_user_id,
+                    type(error).__name__,
+                    error,
+                )
+                continue
+            if can_reach_user:
+                self.fsm.start(user)
+                recovered_user_ids.append(user.telegram_user_id)
+                self._logger.info(
+                    "missing_user_state_recovered telegram_user_id=%s state=%s",
+                    user.telegram_user_id,
+                    BotState.MONITORING.value,
+                )
+            else:
+                self._states.save(UserState.new(user.telegram_user_id))
+                self._logger.info(
+                    "missing_user_state_marked_not_started telegram_user_id=%s",
+                    user.telegram_user_id,
+                )
+        return recovered_user_ids
 
     def restart(self, run_due_ticks: bool = True) -> list[int]:
         due_user_ids = self.due_user_ids()

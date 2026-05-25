@@ -31,6 +31,9 @@ class TelegramGateway(Protocol):
     def send_admin_error(self, admin_telegram_user_id: int, message: str) -> None:
         """Send an operational error to the configured admin account."""
 
+    def can_reach_private_chat(self, telegram_user_id: int) -> bool:
+        """Return whether Telegram currently exposes this private chat to the bot."""
+
 
 class BalanceProvider(Protocol):
     def get_balance(self, user: UserConfig) -> Decimal:

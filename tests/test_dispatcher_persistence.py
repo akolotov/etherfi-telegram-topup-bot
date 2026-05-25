@@ -140,6 +140,72 @@ def test_dispatcher_callbacks_before_start_are_noops(tmp_path) -> None:
     assert safe.created_txs == []
 
 
+def test_recover_missing_user_state_starts_reachable_user(tmp_path) -> None:
+    user = make_user(telegram_user_id=4101)
+    dispatcher, states, telegram, *_ = make_dispatcher(tmp_path, [user])
+
+    recovered_user_ids = dispatcher.recover_missing_user_states()
+
+    state = states.load(user.telegram_user_id)
+    assert recovered_user_ids == [user.telegram_user_id]
+    assert state.state is BotState.MONITORING
+    assert state.next_tick_at is None
+    assert telegram.private_chat_checks == [user.telegram_user_id]
+
+
+def test_recover_missing_user_state_marks_unreachable_user_not_started(tmp_path) -> None:
+    user = make_user(telegram_user_id=4102)
+    dispatcher, states, telegram, *_ = make_dispatcher(tmp_path, [user])
+    telegram.unreachable_private_chat_user_ids.add(user.telegram_user_id)
+
+    recovered_user_ids = dispatcher.recover_missing_user_states()
+
+    state = states.load(user.telegram_user_id)
+    assert recovered_user_ids == []
+    assert state.state is BotState.NOT_STARTED
+    assert state.next_tick_at is None
+    assert telegram.private_chat_checks == [user.telegram_user_id]
+
+
+def test_recover_missing_user_state_skips_existing_states(tmp_path) -> None:
+    active_user = make_user(telegram_user_id=4103)
+    not_started_user = make_user(telegram_user_id=4104)
+    users = [active_user, not_started_user]
+    dispatcher, states, telegram, *_rest, clock = make_dispatcher(tmp_path, users)
+    active_state = UserState(
+        telegram_user_id=active_user.telegram_user_id,
+        state=BotState.MONITORING,
+        next_tick_at=clock.now() + timedelta(seconds=60),
+    )
+    not_started_state = UserState.new(not_started_user.telegram_user_id)
+    states.save(active_state)
+    states.save(not_started_state)
+
+    recovered_user_ids = dispatcher.recover_missing_user_states()
+
+    assert recovered_user_ids == []
+    assert states.load(active_user.telegram_user_id).to_dict() == active_state.to_dict()
+    assert (
+        states.load(not_started_user.telegram_user_id).to_dict()
+        == not_started_state.to_dict()
+    )
+    assert telegram.private_chat_checks == []
+
+
+def test_recover_missing_user_state_keeps_state_missing_on_probe_error(tmp_path) -> None:
+    user = make_user(telegram_user_id=4105)
+    dispatcher, states, telegram, *_ = make_dispatcher(tmp_path, [user])
+    telegram.private_chat_check_errors[user.telegram_user_id] = RuntimeError(
+        "temporary Telegram failure"
+    )
+
+    recovered_user_ids = dispatcher.recover_missing_user_states()
+
+    assert recovered_user_ids == []
+    assert states.list_states() == []
+    assert telegram.private_chat_checks == [user.telegram_user_id]
+
+
 def test_multi_user_states_are_independent(tmp_path) -> None:
     user1 = make_user(telegram_user_id=1001)
     user2 = make_user(telegram_user_id=1002, threshold="5", max_balance="8")
@@ -257,6 +323,62 @@ def test_json_state_repository_round_trips_datetime_and_decimal(tmp_path) -> Non
     assert loaded.tx_reminder_until == state.tx_reminder_until
     assert loaded.last_balance == Decimal("0.123456789")
     assert loaded.low_balance_drop_admin_notified is True
+
+
+def test_restart_respects_persisted_next_tick_and_runs_missing_next_tick(tmp_path) -> None:
+    future_user = make_user(telegram_user_id=4001)
+    missing_tick_user = make_user(telegram_user_id=4002)
+    due_user = make_user(telegram_user_id=4003)
+    users = [future_user, missing_tick_user, due_user]
+    config_path = write_config(tmp_path / "config.json", users)
+    states = JsonStateRepository(tmp_path / "states")
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    states.save(
+        UserState(
+            telegram_user_id=future_user.telegram_user_id,
+            state=BotState.MONITORING,
+            next_tick_at=now + timedelta(seconds=60),
+        )
+    )
+    states.save(
+        UserState(
+            telegram_user_id=missing_tick_user.telegram_user_id,
+            state=BotState.MONITORING,
+            next_tick_at=None,
+        )
+    )
+    states.save(
+        UserState(
+            telegram_user_id=due_user.telegram_user_id,
+            state=BotState.MONITORING,
+            next_tick_at=now,
+        )
+    )
+    telegram = MockTelegramGateway()
+    balances = MockBalanceProvider()
+    for user in users:
+        balances.set_balance(user.target_account, "1")
+    dispatcher = BotDispatcher(
+        config_repository=JsonConfigRepository(config_path),
+        state_repository=states,
+        telegram=telegram,
+        balances=balances,
+        safe_wallet=MockSafeWalletClient(),
+        private_keys=MockPrivateKeyProvider(
+            {user.safe_proposer_key_file: f"key-{user.telegram_user_id}" for user in users}
+        ),
+        clock=MockClock(now),
+    )
+
+    due_user_ids = dispatcher.restart(run_due_ticks=True)
+
+    assert due_user_ids == [
+        missing_tick_user.telegram_user_id,
+        due_user.telegram_user_id,
+    ]
+    assert states.load(future_user.telegram_user_id).state is BotState.MONITORING
+    assert states.load(future_user.telegram_user_id).last_balance_checked_at is None
+    assert [message.telegram_user_id for message in telegram.messages] == due_user_ids
 
 
 def test_restart_runs_due_ticks_from_persisted_state(tmp_path) -> None:

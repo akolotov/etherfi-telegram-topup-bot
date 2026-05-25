@@ -96,6 +96,20 @@ class TelegramApiMockHandler(BaseHTTPRequestHandler):
             self._json({"ok": True, "result": {"queued_updates": len(state["updates"])}})
             return
 
+        if path == "/__admin/set_chat_failure":
+            chat_id = str(payload["chat_id"])
+
+            def _set_failure(state: dict[str, Any]) -> None:
+                state["chat_failures"][chat_id] = {
+                    "error_code": int(payload["error_code"]),
+                    "description": str(payload["description"]),
+                    "http_status": int(payload.get("http_status", 200)),
+                }
+
+            self.state_store.mutate(_set_failure)
+            self._json({"ok": True, "result": True})
+            return
+
         method = self._telegram_method(path)
         if method is None:
             self._json({"ok": False, "description": "not found"}, status=404)
@@ -126,6 +140,31 @@ class TelegramApiMockHandler(BaseHTTPRequestHandler):
                     "is_bot": True,
                     "first_name": "ether.fi Test",
                     "username": self.bot_username,
+                },
+            }
+        )
+
+    def _handle_getChat(self, payload: dict[str, Any]) -> None:
+        chat_id = str(payload.get("chat_id"))
+        state = self.state_store.load()
+        failure = state["chat_failures"].get(chat_id)
+        if failure is not None:
+            self._json(
+                {
+                    "ok": False,
+                    "error_code": int(failure["error_code"]),
+                    "description": failure["description"],
+                },
+                status=int(failure["http_status"]),
+            )
+            return
+        self._json(
+            {
+                "ok": True,
+                "result": {
+                    "id": int(chat_id),
+                    "type": "private",
+                    "first_name": f"User {chat_id}",
                 },
             }
         )
@@ -224,6 +263,7 @@ def _default_state() -> dict[str, Any]:
         "requests": [],
         "outbound": [],
         "webhook": None,
+        "chat_failures": {},
         "next_message_id": 10000,
     }
 

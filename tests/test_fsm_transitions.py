@@ -78,20 +78,19 @@ def send_due_safe_tx_reminder(harness: FsmHarness) -> str:
 
 def test_start_configured_user_enters_monitoring(harness_factory) -> None:
     harness = harness_factory()
-    now = harness.clock.now()
 
     state = harness.fsm.start(harness.user)
 
     assert state.state is BotState.MONITORING
-    assert state.next_tick_at == now + timedelta(
-        seconds=harness.user.balance_check_interval_seconds
-    )
+    assert state.next_tick_at is None
 
 
-def test_start_sets_next_tick_and_repeated_start_is_ignored(harness_factory) -> None:
+def test_repeated_start_preserves_existing_next_tick(harness_factory) -> None:
     harness = harness_factory()
 
-    state = harness.fsm.start(harness.user)
+    harness.fsm.start(harness.user)
+    harness.balances.set_balance(harness.user.target_account, "10")
+    state = harness.fsm.balance_tick(harness.user)
     first_next_tick = state.next_tick_at
     harness.clock.advance(30)
     repeated = harness.fsm.start(harness.user)

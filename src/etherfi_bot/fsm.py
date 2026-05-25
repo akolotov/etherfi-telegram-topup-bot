@@ -64,7 +64,6 @@ class FsmService:
             previous_state = state.state
             state.reset_runtime()
             state.state = BotState.MONITORING
-            state.next_tick_at = self._clock.now() + self._tick_delta(user)
             self._states.save(state)
             self._log_user_event(
                 logging.INFO,

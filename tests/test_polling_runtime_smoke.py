@@ -76,15 +76,15 @@ def test_polling_runtime_smoke_covers_low_balance_top_up_and_cooldowns(tmp_path:
 
         _post_json(base_url, "/__admin/enqueue", _load_fixture("message_command_start"))
         assert runner.process_once() == 1
-        assert states.load(user.telegram_user_id).state is BotState.MONITORING
         requests = _api_state(base_url)["requests"]
-        assert [request["method"] for request in requests[:3]] == [
+        assert [request["method"] for request in requests[:5]] == [
             "deleteWebhook",
             "getMe",
+            "getChat",
+            "sendMessage",
             "getUpdates",
         ]
 
-        _run_due_tick(runner, clock, user.balance_check_interval_seconds)
         first_low_state = states.load(user.telegram_user_id)
         assert first_low_state.state is BotState.LOW_PROMPT
         assert first_low_state.notification_count == 1
@@ -188,11 +188,13 @@ def test_process_once_runs_due_ticks_before_get_updates(tmp_path: Path) -> None:
 
 def test_process_once_caps_get_updates_timeout_by_next_due_tick(tmp_path: Path) -> None:
     user = make_user(telegram_user_id=1001, interval=60)
-    dispatcher, _states, _telegram, _balances, *_rest, clock = _make_polling_dispatcher(
+    dispatcher, _states, _telegram, balances, *_rest, clock = _make_polling_dispatcher(
         tmp_path,
         user,
     )
     dispatcher.start(user.telegram_user_id)
+    balances.set_balance(user.target_account, "10", user.balance_token_address)
+    dispatcher.balance_tick(user.telegram_user_id)
     clock.advance(55)
     api = RecordingPollingApi()
     runner = PollingBotRunner(
@@ -250,7 +252,10 @@ def test_process_once_recovers_pending_update_before_polling(tmp_path: Path) -> 
 
     assert runner.process_once() == 1
 
-    assert states.load(user.telegram_user_id).state is BotState.MONITORING
+    state = states.load(user.telegram_user_id)
+    assert state.state is BotState.LOW_PROMPT
+    assert state.notification_count == 1
+    assert state.last_balance_checked_at is not None
     saved_offset = json.loads(
         (tmp_path / "polling-offset.json").read_text(encoding="utf-8")
     )
@@ -314,6 +319,38 @@ def test_run_forever_logs_and_continues_after_polling_error(tmp_path: Path) -> N
     runner.run_forever()
 
     assert api.get_updates_calls == 2
+
+
+def test_setup_recovers_missing_state_and_pending_start_is_idempotent(tmp_path: Path) -> None:
+    user = make_user(telegram_user_id=1001)
+    dispatcher, states, telegram, balances, *_ = _make_polling_dispatcher(tmp_path, user)
+    balances.set_balance(user.target_account, "1", user.balance_token_address)
+    api = SetupStaticUpdatePollingApi(_load_fixture("message_command_start"))
+    runner = PollingBotRunner(
+        api=api,
+        adapter=TelegramUpdateAdapter(dispatcher),
+        dispatcher=dispatcher,
+        offset_store=JsonPollingOffsetStore(tmp_path / "polling-offset.json"),
+        pending_update_store=JsonPollingPendingUpdateStore(
+            tmp_path / "polling-pending-update.json"
+        ),
+        poll_timeout_seconds=0,
+    )
+
+    runner.setup()
+
+    recovered_state = states.load(user.telegram_user_id)
+    assert recovered_state.state is BotState.MONITORING
+    assert recovered_state.next_tick_at is None
+    assert telegram.private_chat_checks == [user.telegram_user_id]
+
+    assert runner.process_once() == 1
+
+    state = states.load(user.telegram_user_id)
+    assert state.state is BotState.LOW_PROMPT
+    assert state.notification_count == 1
+    assert len(telegram.messages) == 1
+    assert api.calls == ["deleteWebhook", "getMe", "getUpdates"]
 
 
 def _run_due_tick(runner: PollingBotRunner, clock: MockClock, seconds: int) -> None:
@@ -416,6 +453,24 @@ class StaticUpdatePollingApi:
             return []
         self._returned = True
         return [self._update]
+
+
+class SetupStaticUpdatePollingApi(StaticUpdatePollingApi):
+    def __init__(self, update: dict[str, Any]) -> None:
+        super().__init__(update)
+        self.calls: list[str] = []
+
+    def delete_webhook(self, *, drop_pending_updates: bool = False) -> bool:
+        self.calls.append("deleteWebhook")
+        return True
+
+    def get_me(self) -> dict[str, Any]:
+        self.calls.append("getMe")
+        return {"username": "etherfi_test_bot"}
+
+    def get_updates(self, **kwargs) -> list[dict[str, Any]]:
+        self.calls.append("getUpdates")
+        return super().get_updates(**kwargs)
 
 
 class FailingOncePollingApi:
