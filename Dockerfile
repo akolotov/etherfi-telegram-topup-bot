@@ -38,4 +38,4 @@ COPY --from=builder /opt/venv /opt/venv
 
 USER app
 
-ENTRYPOINT ["etherfi-bot"]
+ENTRYPOINT ["etherfi-topup-bot"]

@@ -70,7 +70,7 @@ Useful environment overrides:
 Build the local image, then create the host state directory:
 
 ```bash
-docker build -t etherfi-bot:local .
+docker build -t akolotov/etherfi-telegram-topup-bot:latest .
 mkdir -p bot-state
 ```
 
@@ -101,7 +101,7 @@ Run the bot with Compose:
 
 ```bash
 docker compose up -d
-docker compose logs -f etherfi-bot
+docker compose logs -f etherfi-topup-bot
 docker compose down
 ```
 

@@ -13,7 +13,7 @@ from etherfi_bot.evm import checksum, encode_contract_method, uint256_from_hex
 
 OPTIMISM_CHAIN_ID = "10"
 BLOCKSCOUT_BASE_URL = "https://api.blockscout.com"
-USER_AGENT = "etherfi-bot/0.1.0"
+USER_AGENT = "etherfi-topup-bot/0.1.0"
 
 
 class Erc20BalanceReader(Protocol):

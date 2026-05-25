@@ -120,7 +120,7 @@ def build_runtime(settings: RuntimeSettings) -> RuntimeComponents:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Run the ether.fi Telegram bot")
+    parser = argparse.ArgumentParser(description="Run the ether.fi Telegram top-up bot")
     parser.add_argument(
         "--env-file",
         default=".env",

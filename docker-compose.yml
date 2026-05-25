@@ -1,6 +1,7 @@
 services:
-  etherfi-bot:
-    image: etherfi-bot:local
+  etherfi-topup-bot:
+    container_name: etherfi-topup-bot
+    image: akolotov/etherfi-telegram-topup-bot:latest
     restart: unless-stopped
     init: true
     logging:

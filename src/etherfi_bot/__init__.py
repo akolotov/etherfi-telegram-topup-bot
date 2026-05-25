@@ -1,4 +1,4 @@
-"""FSM core for the ether.fi top-up bot."""
+"""Runtime package for the ether.fi Telegram top-up bot."""
 
 from etherfi_bot.dispatcher import BotDispatcher
 from etherfi_bot.domain import BotState, SafeTxStatus, UserConfig, UserState
