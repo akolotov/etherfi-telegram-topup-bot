@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
-from decimal import Decimal, InvalidOperation
-from typing import Any, Callable
+from decimal import Decimal
+from typing import Any, Callable, Iterable, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from etherfi_bot.domain import BalanceReadError, UserConfig
+from etherfi_bot.evm import checksum, encode_contract_method, uint256_from_hex
 
 
 OPTIMISM_CHAIN_ID = "10"
@@ -15,51 +16,76 @@ BLOCKSCOUT_BASE_URL = "https://api.blockscout.com"
 USER_AGENT = "etherfi-bot/0.1.0"
 
 
+class Erc20BalanceReader(Protocol):
+    def get_balance_base_units(self, token_address: str, account_address: str) -> int:
+        """Read one ERC-20 token balance in base units."""
+
+    def get_decimals(self, token_address: str) -> int:
+        """Read or return cached decimals for one ERC-20 token."""
+
+    def preload_decimals(self, token_addresses: Iterable[str]) -> None:
+        """Read decimals for all unique configured tokens ahead of polling."""
+
+
 class BlockscoutBalanceProvider:
-    def __init__(
-        self,
-        api_key: str,
-        *,
-        base_url: str = BLOCKSCOUT_BASE_URL,
-        chain_id: str = OPTIMISM_CHAIN_ID,
-        timeout_seconds: float = 10,
-        opener: Callable[..., Any] = urlopen,
-    ) -> None:
-        if not api_key:
-            raise ValueError("api_key must not be empty")
-        self._api_key = api_key
-        self._base_url = base_url.rstrip("/")
-        self._chain_id = str(chain_id)
-        self._timeout_seconds = timeout_seconds
-        self._opener = opener
+    def __init__(self, token_reader: Erc20BalanceReader) -> None:
+        self._token_reader = token_reader
 
     def get_balance(self, user: UserConfig) -> Decimal:
-        url = (
-            f"{self._base_url}/{quote(self._chain_id, safe='')}/api/v2/addresses/"
-            f"{quote(user.target_account, safe='')}/token-balances"
-        )
-        request = Request(
-            url,
-            headers={
-                "Authorization": f"Bearer {self._api_key}",
-                "Accept": "application/json",
-                "User-Agent": USER_AGENT,
-            },
-            method="GET",
-        )
         try:
-            with self._opener(request, timeout=self._timeout_seconds) as response:
-                body = response.read().decode("utf-8")
-            data = json.loads(body)
-            return _extract_token_balance(data, user.balance_token_address)
-        except HTTPError as error:
-            raise BalanceReadError(
-                f"Blockscout balance request failed with HTTP {error.code}"
-            ) from error
-        except (URLError, OSError) as error:
+            balance_base_units = self._token_reader.get_balance_base_units(
+                user.balance_token_address,
+                user.target_account,
+            )
+            decimals = self._token_reader.get_decimals(user.balance_token_address)
+            return _decimal_from_raw_token_units(balance_base_units, decimals)
+        except BlockscoutJsonRpcError as error:
             raise BalanceReadError("Blockscout balance request failed") from error
-        except (json.JSONDecodeError, TypeError, ValueError, InvalidOperation) as error:
+        except ValueError as error:
             raise BalanceReadError("Blockscout balance response is invalid") from error
+
+
+class BlockscoutErc20BalanceReader:
+    def __init__(
+        self,
+        rpc_client: "BlockscoutJsonRpcClient",
+        *,
+        decimals_by_token_address: dict[str, int] | None = None,
+    ) -> None:
+        self._rpc_client = rpc_client
+        self._decimals_by_token_address: dict[str, int] = {}
+        for token_address, decimals in (decimals_by_token_address or {}).items():
+            self._decimals_by_token_address[_token_cache_key(token_address)] = (
+                _validate_decimals(decimals)
+            )
+
+    def get_balance_base_units(self, token_address: str, account_address: str) -> int:
+        data = encode_contract_method(
+            "balanceOf",
+            ["address"],
+            [checksum(account_address)],
+        )
+        raw_balance = self._rpc_client.eth_call(
+            to=checksum(token_address),
+            data=data,
+        )
+        return uint256_from_hex(raw_balance)
+
+    def get_decimals(self, token_address: str) -> int:
+        cache_key = _token_cache_key(token_address)
+        if cache_key not in self._decimals_by_token_address:
+            raw_decimals = self._rpc_client.eth_call(
+                to=checksum(token_address),
+                data=encode_contract_method("decimals", [], []),
+            )
+            self._decimals_by_token_address[cache_key] = _validate_decimals(
+                uint256_from_hex(raw_decimals)
+            )
+        return self._decimals_by_token_address[cache_key]
+
+    def preload_decimals(self, token_addresses: Iterable[str]) -> None:
+        for token_address in token_addresses:
+            self.get_decimals(token_address)
 
 
 class BlockscoutJsonRpcError(RuntimeError):
@@ -133,38 +159,15 @@ def _extract_eth_call_result(data: Any) -> str:
     return result
 
 
-def _extract_token_balance(data: Any, token_address: str) -> Decimal:
-    if not isinstance(data, list):
-        raise ValueError("token balance response must be a list")
-
-    normalized_token_address = token_address.lower()
-    for item in data:
-        if not isinstance(item, dict):
-            raise ValueError("token balance item must be an object")
-        token = item.get("token")
-        if token is None:
-            continue
-        if not isinstance(token, dict):
-            raise ValueError("token field must be an object or null")
-        address_hash = token.get("address_hash")
-        if not isinstance(address_hash, str):
-            raise ValueError("token address_hash must be a string")
-        if address_hash.lower() != normalized_token_address:
-            continue
-        return _denominate_token_balance(item, token)
-
-    return Decimal("0")
+def _token_cache_key(token_address: str) -> str:
+    return checksum(token_address).lower()
 
 
-def _denominate_token_balance(item: dict[str, Any], token: dict[str, Any]) -> Decimal:
-    value = item.get("value")
-    decimals = token.get("decimals")
-    if value is None or decimals is None:
-        raise ValueError("matched token balance is missing value or decimals")
-    decimal_count = int(str(decimals))
-    if decimal_count < 0:
-        raise ValueError("token decimals must not be negative")
-    return _decimal_from_raw_token_units(value, decimal_count)
+def _validate_decimals(decimals: int) -> int:
+    decimal_count = int(decimals)
+    if decimal_count < 0 or decimal_count > 255:
+        raise ValueError("token decimals must be between 0 and 255")
+    return decimal_count
 
 
 def _decimal_from_raw_token_units(value: Any, decimal_count: int) -> Decimal:

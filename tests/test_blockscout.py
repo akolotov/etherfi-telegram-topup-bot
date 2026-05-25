@@ -2,44 +2,40 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal, localcontext
+from typing import Iterable
 from urllib.error import HTTPError, URLError
 
 import pytest
 
 from etherfi_bot.blockscout import (
+    OPTIMISM_CHAIN_ID,
+    USER_AGENT,
     BlockscoutBalanceProvider,
+    BlockscoutErc20BalanceReader,
     BlockscoutJsonRpcClient,
     BlockscoutJsonRpcError,
-    USER_AGENT,
 )
 from etherfi_bot.domain import BalanceReadError
+from etherfi_bot.evm import checksum
 from tests.conftest import make_user
 
 
-def test_blockscout_balance_provider_returns_denominated_balance_and_sends_headers() -> None:
+def test_blockscout_balance_provider_returns_denominated_balance_from_balance_of() -> None:
     user = make_user(
         telegram_user_id=1001,
         balance_token_address="0x9999999999999999999999999999999999999999",
     )
-    opener = RecordingOpener(
-        [
-            {
-                "token": {
-                    "address_hash": "0x8888888888888888888888888888888888888888",
-                    "decimals": "18",
-                },
-                "value": "1",
-            },
-            {
-                "token": {
-                    "address_hash": "0x9999999999999999999999999999999999999999".upper(),
-                    "decimals": "6",
-                },
-                "value": "123450000",
-            },
-        ]
+    opener = RecordingOpener(rpc_result(123_450_000))
+    rpc_client = BlockscoutJsonRpcClient(
+        "proapi_test",
+        chain_id=OPTIMISM_CHAIN_ID,
+        opener=opener,
     )
-    provider = BlockscoutBalanceProvider("proapi_test", opener=opener)
+    token_reader = BlockscoutErc20BalanceReader(
+        rpc_client,
+        decimals_by_token_address={user.balance_token_address: 6},
+    )
+    provider = BlockscoutBalanceProvider(token_reader)
 
     balance = provider.get_balance(user)
 
@@ -47,152 +43,138 @@ def test_blockscout_balance_provider_returns_denominated_balance_and_sends_heade
     assert str(balance) == "123.45"
     assert opener.timeout_seconds == 10
     request = opener.requests[0]
-    assert request.full_url == (
-        f"https://api.blockscout.com/10/api/v2/addresses/"
-        f"{user.target_account}/token-balances"
-    )
+    assert request.full_url == "https://api.blockscout.com/10/json-rpc"
     headers = _normalized_headers(request.header_items())
     assert headers["authorization"] == "Bearer proapi_test"
     assert headers["accept"] == "application/json"
+    assert headers["content-type"] == "application/json"
     assert headers["user-agent"] == USER_AGENT
+    body = json.loads(request.data.decode("utf-8"))
+    assert body == {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_call",
+        "params": [
+            {
+                "to": checksum(user.balance_token_address),
+                "data": "0x70a08231"
+                f"000000000000000000000000{user.target_account[2:]}",
+            },
+            "latest",
+        ],
+    }
 
 
 def test_blockscout_balance_provider_preserves_large_balance_precision() -> None:
-    user = make_user(
-        telegram_user_id=1001,
-        balance_token_address="0x9999999999999999999999999999999999999999",
+    provider = BlockscoutBalanceProvider(
+        StaticTokenReader(
+            balance_base_units=123_456_789_012_345_678_901_234_567_890,
+            decimals=18,
+        )
     )
-    opener = RecordingOpener(
-        [
-            {
-                "token": {
-                    "address_hash": "0x9999999999999999999999999999999999999999",
-                    "decimals": "18",
-                },
-                "value": "123456789012345678901234567890",
-            }
-        ]
-    )
-    provider = BlockscoutBalanceProvider("proapi_test", opener=opener)
 
     with localcontext() as context:
         context.prec = 10
-        balance = provider.get_balance(user)
+        balance = provider.get_balance(make_user())
 
     assert balance == Decimal("123456789012.345678901234567890")
     assert str(balance) == "123456789012.34567890123456789"
 
 
 def test_blockscout_balance_provider_removes_fractional_zero_scale_for_display() -> None:
-    user = make_user(
-        telegram_user_id=1001,
-        balance_token_address="0x9999999999999999999999999999999999999999",
+    provider = BlockscoutBalanceProvider(
+        StaticTokenReader(balance_base_units=1_000_000, decimals=6)
     )
-    opener = RecordingOpener(
-        [
-            {
-                "token": {
-                    "address_hash": "0x9999999999999999999999999999999999999999",
-                    "decimals": "6",
-                },
-                "value": "1000000",
-            }
-        ]
-    )
-    provider = BlockscoutBalanceProvider("proapi_test", opener=opener)
 
-    balance = provider.get_balance(user)
+    balance = provider.get_balance(make_user())
 
     assert balance == Decimal("1")
     assert str(balance) == "1"
 
 
-def test_blockscout_balance_provider_returns_zero_when_token_is_absent() -> None:
-    user = make_user(
-        telegram_user_id=1001,
-        balance_token_address="0x9999999999999999999999999999999999999999",
+def test_blockscout_balance_provider_returns_zero_from_balance_of() -> None:
+    provider = BlockscoutBalanceProvider(
+        StaticTokenReader(balance_base_units=0, decimals=18)
     )
-    opener = RecordingOpener(
-        [
-            {
-                "token": {
-                    "address_hash": "0x8888888888888888888888888888888888888888",
-                    "decimals": "18",
-                },
-                "value": "1000000000000000000",
-            }
-        ]
-    )
-    provider = BlockscoutBalanceProvider("proapi_test", opener=opener)
 
-    assert provider.get_balance(user) == Decimal("0")
+    assert provider.get_balance(make_user()) == Decimal("0")
 
 
-def test_blockscout_balance_provider_rejects_matched_token_without_decimals() -> None:
-    user = make_user(
-        telegram_user_id=1001,
-        balance_token_address="0x9999999999999999999999999999999999999999",
+def test_blockscout_balance_provider_rejects_invalid_token_decimals() -> None:
+    opener = RecordingOpener(payloads=[rpc_result(123), rpc_result(256)])
+    token_reader = BlockscoutErc20BalanceReader(
+        BlockscoutJsonRpcClient("proapi_test", chain_id=OPTIMISM_CHAIN_ID, opener=opener)
     )
-    opener = RecordingOpener(
-        [
-            {
-                "token": {
-                    "address_hash": "0x9999999999999999999999999999999999999999",
-                },
-                "value": "123450000",
-            }
-        ]
+    provider = BlockscoutBalanceProvider(token_reader)
+
+    with pytest.raises(BalanceReadError):
+        provider.get_balance(make_user())
+
+
+def test_blockscout_balance_provider_rejects_empty_balance_of_result() -> None:
+    user = make_user()
+    opener = RecordingOpener(rpc_raw_result("0x"))
+    token_reader = BlockscoutErc20BalanceReader(
+        BlockscoutJsonRpcClient("proapi_test", chain_id=OPTIMISM_CHAIN_ID, opener=opener),
+        decimals_by_token_address={user.balance_token_address: 18},
     )
-    provider = BlockscoutBalanceProvider("proapi_test", opener=opener)
+    provider = BlockscoutBalanceProvider(token_reader)
 
     with pytest.raises(BalanceReadError):
         provider.get_balance(user)
 
 
 @pytest.mark.parametrize(
-    "opener_factory",
+    "error",
     [
-        lambda: RecordingOpener(raw_body="{not-json"),
-        lambda: RecordingOpener(raw_body=""),
-        lambda: RecordingOpener(
-            error=HTTPError(
-                "https://api.blockscout.com",
-                401,
-                "Unauthorized",
-                None,
-                None,
-            )
-        ),
-        lambda: RecordingOpener(
-            error=HTTPError(
-                "https://api.blockscout.com",
-                403,
-                "Forbidden",
-                None,
-                None,
-            )
-        ),
-        lambda: RecordingOpener(error=URLError("network unavailable")),
+        BlockscoutJsonRpcError("unavailable"),
+        ValueError("invalid address"),
     ],
 )
-def test_blockscout_balance_provider_wraps_response_and_request_errors(
-    opener_factory,
-) -> None:
-    opener = opener_factory()
-    provider = BlockscoutBalanceProvider("proapi_test", opener=opener)
+def test_blockscout_balance_provider_wraps_reader_errors(error: Exception) -> None:
+    provider = BlockscoutBalanceProvider(FailingTokenReader(error))
 
     with pytest.raises(BalanceReadError):
         provider.get_balance(make_user())
 
 
-def test_blockscout_json_rpc_client_sends_eth_call_request_and_returns_result() -> None:
-    opener = RecordingOpener(
-        {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": "0x000000000000000000000000000000000000000000000000000000000000007b",
-        }
+def test_blockscout_erc20_balance_reader_preloads_and_caches_decimals() -> None:
+    token_address = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+    opener = RecordingOpener(rpc_result(6))
+    reader = BlockscoutErc20BalanceReader(
+        BlockscoutJsonRpcClient("proapi_test", chain_id=OPTIMISM_CHAIN_ID, opener=opener)
     )
+
+    reader.preload_decimals([token_address, token_address.lower()])
+
+    assert reader.get_decimals(token_address) == 6
+    assert len(opener.requests) == 1
+    request_body = json.loads(opener.requests[0].data.decode("utf-8"))
+    assert request_body["params"] == [
+        {
+            "to": checksum(token_address),
+            "data": "0x313ce567",
+        },
+        "latest",
+    ]
+
+
+@pytest.mark.parametrize("result", ["0x", "0x00", "0x" + ("00" * 31)])
+def test_blockscout_erc20_balance_reader_rejects_short_uint256_results(
+    result: str,
+) -> None:
+    token_address = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+    opener = RecordingOpener(rpc_raw_result(result))
+    reader = BlockscoutErc20BalanceReader(
+        BlockscoutJsonRpcClient("proapi_test", chain_id=OPTIMISM_CHAIN_ID, opener=opener)
+    )
+
+    with pytest.raises(ValueError, match="exactly 32 bytes"):
+        reader.preload_decimals([token_address])
+
+
+def test_blockscout_json_rpc_client_sends_eth_call_request_and_returns_result() -> None:
+    opener = RecordingOpener(rpc_result(123))
     client = BlockscoutJsonRpcClient("proapi_test", opener=opener)
 
     result = client.eth_call(
@@ -200,7 +182,7 @@ def test_blockscout_json_rpc_client_sends_eth_call_request_and_returns_result() 
         data=b"\x12\x34",
     )
 
-    assert result == "0x000000000000000000000000000000000000000000000000000000000000007b"
+    assert result == uint256_hex(123)
     request = opener.requests[0]
     assert request.full_url == "https://api.blockscout.com/42161/json-rpc"
     headers = _normalized_headers(request.header_items())
@@ -232,6 +214,24 @@ def test_blockscout_json_rpc_client_sends_eth_call_request_and_returns_result() 
         lambda: RecordingOpener(
             error=HTTPError(
                 "https://api.blockscout.com",
+                401,
+                "Unauthorized",
+                None,
+                None,
+            )
+        ),
+        lambda: RecordingOpener(
+            error=HTTPError(
+                "https://api.blockscout.com",
+                403,
+                "Forbidden",
+                None,
+                None,
+            )
+        ),
+        lambda: RecordingOpener(
+            error=HTTPError(
+                "https://api.blockscout.com",
                 500,
                 "Internal Server Error",
                 None,
@@ -250,17 +250,56 @@ def test_blockscout_json_rpc_client_wraps_response_and_request_errors(
         client.eth_call(to="0x724dc807b04555b71ed48a6896b6F41593b8C637", data="0x1234")
 
 
+class StaticTokenReader:
+    def __init__(self, *, balance_base_units: int, decimals: int) -> None:
+        self.balance_base_units = balance_base_units
+        self.decimals = decimals
+        self.preloaded: list[str] = []
+
+    def get_balance_base_units(self, token_address: str, account_address: str) -> int:
+        del token_address, account_address
+        return self.balance_base_units
+
+    def get_decimals(self, token_address: str) -> int:
+        del token_address
+        return self.decimals
+
+    def preload_decimals(self, token_addresses: Iterable[str]) -> None:
+        self.preloaded.extend(token_addresses)
+
+
+class FailingTokenReader:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def get_balance_base_units(self, token_address: str, account_address: str) -> int:
+        del token_address, account_address
+        raise self.error
+
+    def get_decimals(self, token_address: str) -> int:
+        del token_address
+        return 6
+
+    def preload_decimals(self, token_addresses: Iterable[str]) -> None:
+        del token_addresses
+
+
 class RecordingOpener:
     def __init__(
         self,
         payload: object | None = None,
         *,
+        payloads: list[object] | None = None,
         raw_body: str | None = None,
         error: Exception | None = None,
     ) -> None:
         self.requests = []
         self.timeout_seconds: float | None = None
-        self._raw_body = raw_body if raw_body is not None else json.dumps(payload or [])
+        if payloads is not None:
+            self._raw_bodies = [json.dumps(item) for item in payloads]
+        else:
+            body = raw_body if raw_body is not None else json.dumps(payload or [])
+            self._raw_bodies = [body]
         self._error = error
 
     def __call__(self, request, *, timeout: float):
@@ -268,7 +307,9 @@ class RecordingOpener:
         self.timeout_seconds = timeout
         if self._error is not None:
             raise self._error
-        return FakeResponse(self._raw_body)
+        if not self._raw_bodies:
+            raise AssertionError("no response queued")
+        return FakeResponse(self._raw_bodies.pop(0))
 
 
 class FakeResponse:
@@ -283,6 +324,18 @@ class FakeResponse:
 
     def read(self) -> bytes:
         return self._body.encode("utf-8")
+
+
+def rpc_result(value: int) -> dict[str, object]:
+    return {"jsonrpc": "2.0", "id": 1, "result": uint256_hex(value)}
+
+
+def rpc_raw_result(result: str) -> dict[str, object]:
+    return {"jsonrpc": "2.0", "id": 1, "result": result}
+
+
+def uint256_hex(value: int) -> str:
+    return f"0x{value:064x}"
 
 
 def _normalized_headers(items: list[tuple[str, str]]) -> dict[str, str]:

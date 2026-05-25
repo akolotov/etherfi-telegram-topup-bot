@@ -5,7 +5,12 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from etherfi_bot.blockscout import BlockscoutBalanceProvider, BlockscoutJsonRpcClient
+from etherfi_bot.blockscout import (
+    OPTIMISM_CHAIN_ID,
+    BlockscoutBalanceProvider,
+    BlockscoutErc20BalanceReader,
+    BlockscoutJsonRpcClient,
+)
 from etherfi_bot.dispatcher import BotDispatcher
 from etherfi_bot.polling import (
     JsonPollingOffsetStore,
@@ -15,7 +20,11 @@ from etherfi_bot.polling import (
 from etherfi_bot.ports import BalanceProvider, PrivateKeyProvider, SafeWalletClient
 from etherfi_bot.private_keys import FilePrivateKeyProvider
 from etherfi_bot.safe_tx_preparers import AaveV3NativeUsdcWithdrawPreparer
-from etherfi_bot.safe_wallet import SafeTxServiceClient, SafeWalletTransactionServiceClient
+from etherfi_bot.safe_wallet import (
+    ARBITRUM_CHAIN_ID,
+    SafeTxServiceClient,
+    SafeWalletTransactionServiceClient,
+)
 from etherfi_bot.settings import RuntimeSettings
 from etherfi_bot.storage import JsonConfigRepository, JsonStateRepository
 from etherfi_bot.telegram_adapter import TelegramUpdateAdapter
@@ -49,9 +58,26 @@ def build_runtime(settings: RuntimeSettings) -> RuntimeComponents:
         base_url=settings.telegram_api_base_url,
     )
     gateway = TelegramBotGateway(api)
-    balances = BlockscoutBalanceProvider(settings.blockscout_pro_api_key)
-    blockscout_rpc = BlockscoutJsonRpcClient(settings.blockscout_pro_api_key)
-    top_up_preparer = AaveV3NativeUsdcWithdrawPreparer(blockscout_rpc)
+    private_keys = FilePrivateKeyProvider()
+    for user in config.users_by_telegram_id.values():
+        private_keys.read_private_key(user.safe_proposer_key_file)
+    optimism_token_reader = BlockscoutErc20BalanceReader(
+        BlockscoutJsonRpcClient(
+            settings.blockscout_pro_api_key,
+            chain_id=OPTIMISM_CHAIN_ID,
+        )
+    )
+    optimism_token_reader.preload_decimals(
+        {user.balance_token_address for user in config.users_by_telegram_id.values()}
+    )
+    balances = BlockscoutBalanceProvider(optimism_token_reader)
+    arbitrum_token_reader = BlockscoutErc20BalanceReader(
+        BlockscoutJsonRpcClient(
+            settings.blockscout_pro_api_key,
+            chain_id=str(ARBITRUM_CHAIN_ID),
+        )
+    )
+    top_up_preparer = AaveV3NativeUsdcWithdrawPreparer(arbitrum_token_reader)
     safe_wallet = SafeWalletTransactionServiceClient(
         SafeTxServiceClient(
             settings.safe_transaction_service_api_key,
@@ -59,9 +85,6 @@ def build_runtime(settings: RuntimeSettings) -> RuntimeComponents:
         ),
         top_up_preparer,
     )
-    private_keys = FilePrivateKeyProvider()
-    for user in config.users_by_telegram_id.values():
-        private_keys.read_private_key(user.safe_proposer_key_file)
     clock = SystemClock()
     dispatcher = BotDispatcher(
         config_repository=config_repository,

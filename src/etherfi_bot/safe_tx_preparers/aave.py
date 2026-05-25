@@ -4,14 +4,13 @@ from decimal import Decimal
 
 from safe_eth.safe import SafeOperationEnum
 
-from etherfi_bot.blockscout import BlockscoutJsonRpcClient, BlockscoutJsonRpcError
+from etherfi_bot.blockscout import BlockscoutJsonRpcError, Erc20BalanceReader
 from etherfi_bot.domain import SafeTxCreateError
 from etherfi_bot.safe_tx_preparers import (
     SafeTxCall,
     checksum,
     decimal_to_base_units,
     encode_contract_method,
-    uint256_from_hex,
 )
 
 
@@ -24,7 +23,7 @@ USDC_DECIMALS = 6
 class AaveV3NativeUsdcWithdrawPreparer:
     def __init__(
         self,
-        blockscout: BlockscoutJsonRpcClient,
+        balances: Erc20BalanceReader,
         *,
         pool_address: str = AAVE_V3_ARBITRUM_POOL,
         usdc_address: str = ARBITRUM_NATIVE_USDC,
@@ -35,7 +34,7 @@ class AaveV3NativeUsdcWithdrawPreparer:
         self.usdc_address = checksum(usdc_address)
         self.ausdc_address = checksum(ausdc_address)
         self.decimals = int(decimals)
-        self._blockscout = blockscout
+        self._balances = balances
 
     def preflight_check(
         self,
@@ -45,14 +44,11 @@ class AaveV3NativeUsdcWithdrawPreparer:
     ) -> None:
         del target_account
         amount_base_units = decimal_to_base_units(amount, self.decimals)
-        data = encode_contract_method(
-            "balanceOf",
-            ["address"],
-            [checksum(safe_address)],
-        )
         try:
-            raw_balance = self._blockscout.eth_call(to=self.ausdc_address, data=data)
-            balance_base_units = uint256_from_hex(raw_balance)
+            balance_base_units = self._balances.get_balance_base_units(
+                self.ausdc_address,
+                checksum(safe_address),
+            )
         except (BlockscoutJsonRpcError, ValueError) as error:
             raise SafeTxCreateError("AAVE preflight balance check failed") from error
         if balance_base_units < amount_base_units:

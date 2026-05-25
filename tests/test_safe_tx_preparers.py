@@ -18,8 +18,8 @@ from etherfi_bot.safe_tx_preparers import (
 
 
 def test_aave_preflight_passes_when_safe_has_enough_ausdc() -> None:
-    blockscout = RecordingJsonRpc(result=uint256_hex(2_000_000))
-    preparer = AaveV3NativeUsdcWithdrawPreparer(blockscout)
+    balances = RecordingBalances(balance_base_units=2_000_000)
+    preparer = AaveV3NativeUsdcWithdrawPreparer(balances)
 
     preparer.preflight_check(
         "0x0000000000000000000000000000000000000001",
@@ -27,18 +27,17 @@ def test_aave_preflight_passes_when_safe_has_enough_ausdc() -> None:
         "0x0000000000000000000000000000000000000002",
     )
 
-    assert blockscout.calls == [
+    assert balances.calls == [
         {
-            "to": checksum(ARBITRUM_AAVE_NATIVE_USDC_ATOKEN),
-            "data": "0x70a08231"
-            "0000000000000000000000000000000000000000000000000000000000000001",
+            "token_address": checksum(ARBITRUM_AAVE_NATIVE_USDC_ATOKEN),
+            "account_address": checksum("0x0000000000000000000000000000000000000001"),
         }
     ]
 
 
 def test_aave_preflight_fails_when_safe_ausdc_balance_is_insufficient() -> None:
-    blockscout = RecordingJsonRpc(result=uint256_hex(999_999))
-    preparer = AaveV3NativeUsdcWithdrawPreparer(blockscout)
+    balances = RecordingBalances(balance_base_units=999_999)
+    preparer = AaveV3NativeUsdcWithdrawPreparer(balances)
 
     with pytest.raises(SafeTxCreateError, match="required 1000000"):
         preparer.preflight_check(
@@ -49,7 +48,7 @@ def test_aave_preflight_fails_when_safe_ausdc_balance_is_insufficient() -> None:
 
 
 def test_aave_preflight_wraps_blockscout_errors_as_safe_tx_create_failed() -> None:
-    preparer = AaveV3NativeUsdcWithdrawPreparer(FailingJsonRpc())
+    preparer = AaveV3NativeUsdcWithdrawPreparer(FailingBalances())
 
     with pytest.raises(SafeTxCreateError, match="AAVE preflight balance check failed"):
         preparer.preflight_check(
@@ -67,7 +66,9 @@ def test_decimal_to_base_units_requires_exact_token_precision() -> None:
 
 
 def test_aave_prepare_transaction_builds_withdraw_call() -> None:
-    preparer = AaveV3NativeUsdcWithdrawPreparer(RecordingJsonRpc(result=uint256_hex(0)))
+    preparer = AaveV3NativeUsdcWithdrawPreparer(
+        RecordingBalances(balance_base_units=0)
+    )
     target = "0x0000000000000000000000000000000000000002"
 
     call = preparer.prepare_transaction(
@@ -89,25 +90,22 @@ def test_aave_prepare_transaction_builds_withdraw_call() -> None:
     assert checksum(recipient) == checksum(target)
 
 
-class RecordingJsonRpc:
-    def __init__(self, *, result: str) -> None:
-        self.result = result
+class RecordingBalances:
+    def __init__(self, *, balance_base_units: int) -> None:
+        self.balance_base_units = balance_base_units
         self.calls: list[dict[str, str]] = []
 
-    def eth_call(self, *, to: str, data: bytes | str, block: str = "latest") -> str:
-        del block
-        data_hex = data.hex() if isinstance(data, bytes) else data
-        if not data_hex.startswith("0x"):
-            data_hex = f"0x{data_hex}"
-        self.calls.append({"to": to, "data": data_hex})
-        return self.result
+    def get_balance_base_units(self, token_address: str, account_address: str) -> int:
+        self.calls.append(
+            {
+                "token_address": token_address,
+                "account_address": account_address,
+            }
+        )
+        return self.balance_base_units
 
 
-class FailingJsonRpc:
-    def eth_call(self, *, to: str, data: bytes | str, block: str = "latest") -> str:
-        del to, data, block
+class FailingBalances:
+    def get_balance_base_units(self, token_address: str, account_address: str) -> int:
+        del token_address, account_address
         raise BlockscoutJsonRpcError("unavailable")
-
-
-def uint256_hex(value: int) -> str:
-    return f"0x{value:064x}"

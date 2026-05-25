@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from etherfi_bot import runtime as runtime_module
 from etherfi_bot.private_keys import FilePrivateKeyProvider, SECP256K1_ORDER
 from etherfi_bot.runtime import build_runtime
 from etherfi_bot.safe_wallet import SafeWalletTransactionServiceClient
@@ -98,7 +99,10 @@ def test_build_runtime_validates_configured_private_key_files(tmp_path: Path) ->
         build_runtime(settings)
 
 
-def test_build_runtime_wires_real_safe_wallet_client(tmp_path: Path) -> None:
+def test_build_runtime_wires_real_safe_wallet_client(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     key_path = tmp_path / "safe_proposer_private_key"
     key_path.write_text(f"{1:064x}", encoding="utf-8")
     user = replace(
@@ -116,7 +120,52 @@ def test_build_runtime_wires_real_safe_wallet_client(tmp_path: Path) -> None:
         polling_offset_path=tmp_path / "polling-offset.json",
         polling_pending_update_path=tmp_path / "polling-pending-update.json",
     )
+    rpc_clients: list[FakeBlockscoutJsonRpcClient] = []
+    token_readers: list[FakeBlockscoutErc20BalanceReader] = []
+    FakeBlockscoutJsonRpcClient.created = rpc_clients
+    FakeBlockscoutErc20BalanceReader.created = token_readers
+    monkeypatch.setattr(
+        runtime_module,
+        "BlockscoutJsonRpcClient",
+        FakeBlockscoutJsonRpcClient,
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "BlockscoutErc20BalanceReader",
+        FakeBlockscoutErc20BalanceReader,
+    )
 
     components = build_runtime(settings)
 
     assert isinstance(components.safe_wallet, SafeWalletTransactionServiceClient)
+    assert [client.chain_id for client in rpc_clients] == ["10", "42161"]
+    assert token_readers[0].preloaded_token_addresses == [{user.balance_token_address}]
+
+
+class FakeBlockscoutJsonRpcClient:
+    created: list["FakeBlockscoutJsonRpcClient"] = []
+
+    def __init__(self, api_key: str, *, chain_id: str) -> None:
+        self.api_key = api_key
+        self.chain_id = str(chain_id)
+        self.created.append(self)
+
+
+class FakeBlockscoutErc20BalanceReader:
+    created: list["FakeBlockscoutErc20BalanceReader"] = []
+
+    def __init__(self, rpc_client: FakeBlockscoutJsonRpcClient) -> None:
+        self.rpc_client = rpc_client
+        self.preloaded_token_addresses: list[set[str]] = []
+        self.created.append(self)
+
+    def get_balance_base_units(self, token_address: str, account_address: str) -> int:
+        del token_address, account_address
+        return 0
+
+    def get_decimals(self, token_address: str) -> int:
+        del token_address
+        return 6
+
+    def preload_decimals(self, token_addresses) -> None:
+        self.preloaded_token_addresses.append(set(token_addresses))
