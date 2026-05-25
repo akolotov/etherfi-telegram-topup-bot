@@ -19,6 +19,13 @@ and `SAFE_TRANSACTION_SERVICE_API_KEY`:
 cp .env.example .env
 ```
 
+Before filling in `.env`:
+
+- Create the Telegram bot with [BotFather](https://t.me/BotFather) and set `BOT_TOKEN` to the token it provides.
+- Create the Safe wallet in [Safe](https://app.safe.global/) with at least one signer/owner and one proposer for the bot. Configure the bot with the proposer's private key, not a signer private key.
+- Get `BLOCKSCOUT_PRO_API_KEY` from the [Blockscout Developer Portal](https://dev.blockscout.com/).
+- Get `SAFE_TRANSACTION_SERVICE_API_KEY` from the [Safe Developer Portal](https://developer.safe.global/).
+
 Configure allowed Telegram users in `data/config.json`. The bot only reacts to Telegram user IDs listed there. Each user also sets `balance_token_address`, which is the token checked for the target account balance.
 
 To find a Telegram user ID, have the user send `/start` to the bot before they
@@ -76,6 +83,12 @@ and one proposer private key file per configured user, for example
 ```json
 "safe_proposer_key_file": "/run/secrets/safe_proposer_private_key_1001"
 ```
+
+`safe_proposer_key_file` must contain the private key for the Safe proposer
+configured for the bot. Do not use a Safe signer/owner private key here: the
+proposer can submit transactions for signer review, while signer keys can
+authorize Safe execution. Keeping signer keys out of the bot limits the impact
+of a bot host compromise.
 
 For each additional user, add a matching service secret and top-level secret in
 `docker-compose.yml`, then point that user's `safe_proposer_key_file` at
