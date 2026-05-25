@@ -15,8 +15,11 @@ services:
       - ./data/config.json:/config/config.json:ro
       - ./bot-state:/state
     secrets:
-      - safe_proposer_private_key
+      - safe_proposer_private_key_1001
+      - safe_proposer_private_key_1002
 
 secrets:
-  safe_proposer_private_key:
-    file: ./.secrets/safe_proposer_private_key
+  safe_proposer_private_key_1001:
+    file: ./.secrets/safe_proposer_private_key_1001
+  safe_proposer_private_key_1002:
+    file: ./.secrets/safe_proposer_private_key_1002

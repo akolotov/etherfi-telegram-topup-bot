@@ -55,12 +55,18 @@ mkdir -p bot-state
 ```
 
 Docker runtime files stay outside the image. Provide `.env`, `data/config.json`,
-and `.secrets/safe_proposer_private_key`. In `data/config.json`, set each
-`safe_proposer_key_file` to the Compose secret path:
+and one proposer private key file per configured user, for example
+`.secrets/safe_proposer_private_key_1001` and
+`.secrets/safe_proposer_private_key_1002`. In `data/config.json`, set each
+`safe_proposer_key_file` to that user's Compose secret path:
 
 ```json
-"safe_proposer_key_file": "/run/secrets/safe_proposer_private_key"
+"safe_proposer_key_file": "/run/secrets/safe_proposer_private_key_1001"
 ```
+
+For each additional user, add a matching service secret and top-level secret in
+`docker-compose.yml`, then point that user's `safe_proposer_key_file` at
+`/run/secrets/<secret_name>`.
 
 The container runs as UID/GID `1000`; make `bot-state` writable by that user on
 Linux hosts.
