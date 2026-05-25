@@ -53,7 +53,7 @@ class MockTelegramGateway:
             "low_balance_prompt",
             "send_low_balance_prompt",
             buttons=True,
-            text=f"Low balance {balance}",
+            text=f"Balance is low: {balance}. Top up?",
         )
 
     def send_safe_tx_created(self, user: UserConfig, safe_tx_id: str) -> int:
@@ -62,7 +62,7 @@ class MockTelegramGateway:
             "safe_tx_created",
             "send_safe_tx_created",
             buttons=False,
-            text=f"Safe transaction {safe_tx_id} was created",
+            text="Safe transaction was created. Please sign and execute it.",
         )
 
     def send_safe_tx_pending_prompt(self, user: UserConfig, safe_tx_id: str) -> int:
@@ -71,7 +71,10 @@ class MockTelegramGateway:
             "safe_tx_pending_prompt",
             "send_safe_tx_pending_prompt",
             buttons=False,
-            text=f"Safe transaction {safe_tx_id} already exists and is still pending",
+            text=(
+                "Balance is still low. A top-up Safe transaction is pending. "
+                "Please sign and execute it."
+            ),
         )
 
     def send_existing_safe_tx_notice(self, user: UserConfig, safe_tx_id: str) -> int:
@@ -80,7 +83,10 @@ class MockTelegramGateway:
             "existing_safe_tx_notice",
             "send_existing_safe_tx_notice",
             buttons=False,
-            text=f"Use existing Safe transaction {safe_tx_id}",
+            text=(
+                "Balance is still low. A top-up Safe transaction is pending. "
+                "Please sign and execute it."
+            ),
         )
 
     def remove_buttons(self, telegram_user_id: int, message_id: int) -> None:
@@ -146,10 +152,7 @@ class MockBalanceProvider:
         balance_key = (user.target_account, user.balance_token_address)
         self.reads.append(balance_key)
         if user.target_account in self.fail_accounts or balance_key in self.fail_balances:
-            raise BalanceReadError(
-                "Could not read balance for "
-                f"{user.target_account} token {user.balance_token_address}"
-            )
+            raise BalanceReadError("Could not read balance")
         return self.balances.get(balance_key, Decimal("0"))
 
 
@@ -179,7 +182,7 @@ class MockSafeWalletClient:
         safe_proposer_private_key: str,
     ) -> str:
         if user.telegram_user_id in self.fail_create_for_users:
-            raise SafeTxCreateError(f"Could not create Safe tx for {user.telegram_user_id}")
+            raise SafeTxCreateError("Could not create Safe tx")
         safe_tx_id = f"safe-tx-{self._next_tx_number}"
         self._next_tx_number += 1
         self.created_txs.append(
@@ -198,7 +201,7 @@ class MockSafeWalletClient:
     def get_tx_status(self, user: UserConfig, safe_tx_id: str) -> SafeTxStatus:
         self.status_checks.append(safe_tx_id)
         if safe_tx_id in self.fail_status_for_txs:
-            raise SafeTxStatusReadError(f"Could not read Safe tx status for {safe_tx_id}")
+            raise SafeTxStatusReadError("Could not read Safe tx status")
         return self.statuses.get(safe_tx_id, SafeTxStatus.PENDING)
 
 

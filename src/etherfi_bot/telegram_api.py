@@ -197,10 +197,7 @@ class TelegramBotGateway:
     def send_low_balance_prompt(self, user: UserConfig, balance: Decimal) -> int:
         message = self._api.send_message(
             chat_id=user.telegram_user_id,
-            text=(
-                f"Target account balance is low: {balance}. "
-                "Create a Safe Wallet top-up transaction?"
-            ),
+            text=f"Balance is low: {balance}. Top up?",
             reply_markup={
                 "inline_keyboard": [
                     [
@@ -215,10 +212,7 @@ class TelegramBotGateway:
     def send_safe_tx_created(self, user: UserConfig, safe_tx_id: str) -> int:
         message = self._api.send_message(
             chat_id=user.telegram_user_id,
-            text=(
-                f"Safe transaction {safe_tx_id} was created. "
-                "Please add your signature and execute it."
-            ),
+            text="Safe transaction was created. Please sign and execute it.",
         )
         return int(message["message_id"])
 
@@ -226,7 +220,7 @@ class TelegramBotGateway:
         message = self._api.send_message(
             chat_id=user.telegram_user_id,
             text=(
-                f"Safe transaction {safe_tx_id} is still pending. "
+                "Balance is still low. A top-up Safe transaction is pending. "
                 "Please sign and execute it."
             ),
         )
@@ -235,7 +229,10 @@ class TelegramBotGateway:
     def send_existing_safe_tx_notice(self, user: UserConfig, safe_tx_id: str) -> int:
         message = self._api.send_message(
             chat_id=user.telegram_user_id,
-            text=f"Use existing Safe transaction {safe_tx_id}.",
+            text=(
+                "Balance is still low. A top-up Safe transaction is pending. "
+                "Please sign and execute it."
+            ),
         )
         return int(message["message_id"])
 

@@ -26,7 +26,7 @@
         "type": "private"
       },
       "date": 1776890260,
-      "text": "Low balance 1",
+      "text": "Balance is low: 1. Top up?",
       "reply_markup": {
         "inline_keyboard": [
           [

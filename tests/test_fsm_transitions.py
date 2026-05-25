@@ -122,7 +122,13 @@ def test_s1_balance_read_failure_notifies_admin_and_keeps_state(harness_factory)
 
     assert state.state is BotState.MONITORING
     assert len(harness.telegram.admin_errors) == 1
-    assert "Balance read failed" in harness.telegram.admin_errors[0][1]
+    assert (
+        harness.telegram.admin_errors[0][1]
+        == f"Balance read failed for target account "
+        f"{harness.user.target_account}: Could not read balance"
+    )
+    assert str(harness.user.telegram_user_id) not in harness.telegram.admin_errors[0][1]
+    assert harness.user.balance_token_address not in harness.telegram.admin_errors[0][1]
 
 
 def test_low_balance_drop_notifies_admin_once_until_balance_recovers_above_threshold(
@@ -145,12 +151,9 @@ def test_low_balance_drop_notifies_admin_once_until_balance_recovers_above_thres
     assert len(harness.telegram.admin_errors) == 1
     assert harness.telegram.admin_errors[-1][0] == 9001
     assert (
-        "Target account balance dropped below threshold"
-        in harness.telegram.admin_errors[-1][1]
+        harness.telegram.admin_errors[-1][1]
+        == f"{user.target_account} balance dropped below 200, current balance 199"
     )
-    assert "previous balance 201" in harness.telegram.admin_errors[-1][1]
-    assert "current balance 199" in harness.telegram.admin_errors[-1][1]
-    assert "threshold 200" in harness.telegram.admin_errors[-1][1]
 
     tick("199")
     tick("190")
@@ -168,8 +171,10 @@ def test_low_balance_drop_notifies_admin_once_until_balance_recovers_above_thres
 
     assert state.low_balance_drop_admin_notified is True
     assert len(harness.telegram.admin_errors) == 2
-    assert "previous balance 204" in harness.telegram.admin_errors[-1][1]
-    assert "current balance 180" in harness.telegram.admin_errors[-1][1]
+    assert (
+        harness.telegram.admin_errors[-1][1]
+        == f"{user.target_account} balance dropped below 200, current balance 180"
+    )
 
 
 def test_balance_drop_admin_notification_ignores_first_read_and_above_threshold_drop(
@@ -213,7 +218,7 @@ def test_balance_read_failure_does_not_send_balance_drop_admin_notification(
     assert len(harness.telegram.admin_errors) == 1
     assert "Balance read failed" in harness.telegram.admin_errors[-1][1]
     assert not any(
-        "Target account balance dropped below threshold" in message
+        "balance dropped below" in message
         for _, message in harness.telegram.admin_errors
     )
 
@@ -353,23 +358,14 @@ def test_top_up_success_uses_fresh_balance_and_creates_safe_tx(harness_factory) 
         message_id,
     )
     assert len(harness.telegram.admin_errors) == 1
-    assert "Safe tx created for top up" in harness.telegram.admin_errors[-1][1]
-    assert "user 1001" in harness.telegram.admin_errors[-1][1]
     assert (
-        f"target account {harness.user.target_account}"
-        in harness.telegram.admin_errors[-1][1]
+        harness.telegram.admin_errors[-1][1]
+        == f"Tx created in safe {harness.user.safe_account} "
+        f"to top up {harness.user.target_account}"
     )
-    assert (
-        f"safe account {harness.user.safe_account}"
-        in harness.telegram.admin_errors[-1][1]
-    )
-    assert (
-        f"token {harness.user.balance_token_address}"
-        in harness.telegram.admin_errors[-1][1]
-    )
-    assert "fresh balance 3" in harness.telegram.admin_errors[-1][1]
-    assert "amount 17" in harness.telegram.admin_errors[-1][1]
-    assert "safe tx safe-tx-1" in harness.telegram.admin_errors[-1][1]
+    assert "1001" not in harness.telegram.admin_errors[-1][1]
+    assert harness.user.balance_token_address not in harness.telegram.admin_errors[-1][1]
+    assert "safe-tx-1" not in harness.telegram.admin_errors[-1][1]
 
 
 def test_balance_tick_reads_configured_balance_token_address(harness_factory) -> None:
@@ -425,7 +421,11 @@ def test_top_up_fresh_balance_read_failed_notifies_admin(harness_factory) -> Non
     assert state.low_cooldown_until is None
     assert state.current_message_id is None
     assert len(harness.safe.created_txs) == 0
-    assert "Fresh balance read failed" in harness.telegram.admin_errors[-1][1]
+    assert (
+        harness.telegram.admin_errors[-1][1]
+        == f"Fresh balance read failed for target account "
+        f"{harness.user.target_account}: Could not read balance"
+    )
 
 
 def test_top_up_fresh_ok_or_non_positive_amount_skips_safe_tx(harness_factory) -> None:
@@ -471,9 +471,13 @@ def test_top_up_safe_create_failed_notifies_admin(harness_factory) -> None:
     assert state.current_message_id is None
     assert len(harness.safe.created_txs) == 0
     assert harness.private_keys.requests == [harness.user.safe_proposer_key_file]
-    assert "Safe tx creation failed" in harness.telegram.admin_errors[-1][1]
+    assert (
+        harness.telegram.admin_errors[-1][1]
+        == f"Safe tx creation failed for safe {harness.user.safe_account}: "
+        "Could not create Safe tx"
+    )
     assert not any(
-        "Safe tx created for top up" in message
+        "Tx created in safe" in message
         for _, message in harness.telegram.admin_errors
     )
 
@@ -843,7 +847,13 @@ def test_safe_status_read_failed_in_s4_keeps_pending_and_schedules_next_tick(har
         seconds=harness.user.balance_check_interval_seconds
     )
     assert len(harness.telegram.messages) == message_count
-    assert "Safe tx status read failed" in harness.telegram.admin_errors[-1][1]
+    assert (
+        harness.telegram.admin_errors[-1][1]
+        == f"Safe tx status read failed for safe {harness.user.safe_account}: "
+        "Could not read Safe tx status"
+    )
+    assert str(harness.user.telegram_user_id) not in harness.telegram.admin_errors[-1][1]
+    assert tx_id not in harness.telegram.admin_errors[-1][1]
 
 
 def test_safe_status_read_failed_after_pending_reminder_keeps_context(harness_factory) -> None:
@@ -1083,8 +1093,12 @@ def test_send_403_from_safe_tx_created_resets_to_not_started(harness_factory) ->
     assert state.next_tick_at is None
     assert len(harness.safe.created_txs) == 1
     assert len(harness.telegram.admin_errors) == 1
-    assert "Safe tx created for top up" in harness.telegram.admin_errors[-1][1]
-    assert "safe tx safe-tx-1" in harness.telegram.admin_errors[-1][1]
+    assert (
+        harness.telegram.admin_errors[-1][1]
+        == f"Tx created in safe {harness.user.safe_account} "
+        f"to top up {harness.user.target_account}"
+    )
+    assert "safe-tx-1" not in harness.telegram.admin_errors[-1][1]
 
 
 def test_send_403_from_safe_tx_pending_prompt_resets_to_not_started(harness_factory) -> None:

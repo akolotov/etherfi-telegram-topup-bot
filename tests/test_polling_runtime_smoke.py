@@ -90,6 +90,7 @@ def test_polling_runtime_smoke_covers_low_balance_top_up_and_cooldowns(tmp_path:
         assert first_low_state.notification_count == 1
         first_low_payload = _last_outbound(base_url, "sendMessage")["payload"]
         assert first_low_payload["chat_id"] == user.telegram_user_id
+        assert first_low_payload["text"] == "Balance is low: 0. Top up?"
         assert first_low_payload["reply_markup"]["inline_keyboard"][0] == [
             {"text": "Top Up", "callback_data": "top_up"},
             {"text": "Ignore", "callback_data": "ignore"},
@@ -131,7 +132,11 @@ def test_polling_runtime_smoke_covers_low_balance_top_up_and_cooldowns(tmp_path:
             "callback_query_id": "smoke-top-up"
         }
         safe_created_payload = _last_outbound(base_url, "sendMessage")["payload"]
-        assert "Safe transaction safe-tx-1 was created" in safe_created_payload["text"]
+        assert (
+            safe_created_payload["text"]
+            == "Safe transaction was created. Please sign and execute it."
+        )
+        assert "safe-tx-1" not in safe_created_payload["text"]
 
         send_count_after_created = _outbound_method_count(base_url, "sendMessage")
         _run_due_tick(runner, clock, user.low_balance_notification_cooldown_seconds)
@@ -139,7 +144,10 @@ def test_polling_runtime_smoke_covers_low_balance_top_up_and_cooldowns(tmp_path:
         assert reminder_state.state is BotState.SAFE_TX_PENDING
         assert reminder_state.pending_safe_tx_id == "safe-tx-1"
         assert _outbound_method_count(base_url, "sendMessage") == send_count_after_created + 1
-        assert "still pending" in _last_outbound(base_url, "sendMessage")["payload"]["text"]
+        assert _last_outbound(base_url, "sendMessage")["payload"]["text"] == (
+            "Balance is still low. A top-up Safe transaction is pending. "
+            "Please sign and execute it."
+        )
 
         send_count_after_reminder = _outbound_method_count(base_url, "sendMessage")
         _run_due_tick(runner, clock, user.balance_check_interval_seconds)

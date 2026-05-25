@@ -235,7 +235,7 @@ class FsmService:
                 error=safe_status_error,
             )
             self._notify_admin(
-                f"Safe tx status read failed for user {user.telegram_user_id}: {safe_status_error}"
+                f"Safe tx status read failed for safe {user.safe_account}: {safe_status_error}"
             )
 
         if balance_error is not None:
@@ -250,8 +250,8 @@ class FsmService:
                 error=balance_error,
             )
             self._notify_admin(
-                "Balance read failed for user "
-                f"{user.telegram_user_id} token {user.balance_token_address}: {balance_error}"
+                "Balance read failed for target account "
+                f"{user.target_account}: {balance_error}"
             )
             if state.state is BotState.SAFE_TX_PENDING:
                 self._handle_safe_tx_tick_with_balance_error(
@@ -577,8 +577,8 @@ class FsmService:
                 error=error,
             )
             self._notify_admin(
-                "Fresh balance read failed for user "
-                f"{user.telegram_user_id} token {user.balance_token_address}: {error}"
+                "Fresh balance read failed for target account "
+                f"{user.target_account}: {error}"
             )
             state.state = BotState.MONITORING
             return
@@ -625,7 +625,7 @@ class FsmService:
                 error=error,
             )
             self._notify_admin(
-                f"Safe tx creation failed for user {user.telegram_user_id}: {error}"
+                f"Safe tx creation failed for safe {user.safe_account}: {error}"
             )
             state.state = BotState.MONITORING
             return
@@ -644,14 +644,7 @@ class FsmService:
             safe_proposer_key_file=user.safe_proposer_key_file,
         )
         self._notify_admin(
-            "Safe tx created for top up: "
-            f"user {user.telegram_user_id}, "
-            f"target account {user.target_account}, "
-            f"safe account {user.safe_account}, "
-            f"token {user.balance_token_address}, "
-            f"fresh balance {fresh_balance}, "
-            f"amount {amount}, "
-            f"safe tx {safe_tx_id}"
+            f"Tx created in safe {user.safe_account} to top up {user.target_account}"
         )
         # A Telegram 403 here is intentional state signal: the user blocked the bot
         # after requesting top-up, so callback_top_up resets the user to S0.
@@ -794,13 +787,8 @@ class FsmService:
             threshold=user.balance_threshold,
         )
         self._notify_admin(
-            "Target account balance dropped below threshold: "
-            f"user {user.telegram_user_id}, "
-            f"target account {user.target_account}, "
-            f"token {user.balance_token_address}, "
-            f"previous balance {previous_balance}, "
-            f"current balance {balance}, "
-            f"threshold {user.balance_threshold}"
+            f"{user.target_account} balance dropped below {user.balance_threshold}, "
+            f"current balance {balance}"
         )
 
     def _notify_admin(self, message: str) -> None:
