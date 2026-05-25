@@ -1,0 +1,9 @@
+*
+
+!pyproject.toml
+!src/
+!src/etherfi_bot/
+!src/etherfi_bot/**
+
+**/__pycache__/
+**/*.py[cod]

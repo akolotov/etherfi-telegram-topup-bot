@@ -9,7 +9,7 @@
         "target_max_balance": "1.0",
         "balance_check_interval_seconds": 60,
         "safe_account": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "safe_proposer_key_file": "./.secrets/safe_proposer_private_key",
+        "safe_proposer_key_file": "/run/secrets/safe_proposer_private_key",
         "low_balance_notification_limit": 3,
         "low_balance_notification_cooldown_seconds": 300
       },
@@ -21,7 +21,7 @@
         "target_max_balance": "2.0",
         "balance_check_interval_seconds": 120,
         "safe_account": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        "safe_proposer_key_file": "./.secrets/safe_proposer_private_key",
+        "safe_proposer_key_file": "/run/secrets/safe_proposer_private_key",
         "low_balance_notification_limit": 3,
         "low_balance_notification_cooldown_seconds": 600
       }

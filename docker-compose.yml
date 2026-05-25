@@ -1,0 +1,22 @@
+services:
+  etherfi-bot:
+    image: etherfi-bot:local
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      INGRESS_MODE: polling
+      CONFIG_PATH: /config/config.json
+      STATE_DIR: /state/user_states
+      POLLING_OFFSET_PATH: /state/polling_offset.json
+      POLLING_PENDING_UPDATE_PATH: /state/polling_pending_update.json
+    volumes:
+      - ./data/config.json:/config/config.json:ro
+      - ./bot-state:/state
+    secrets:
+      - safe_proposer_private_key
+
+secrets:
+  safe_proposer_private_key:
+    file: ./.secrets/safe_proposer_private_key
