@@ -21,6 +21,19 @@ cp .env.example .env
 
 Configure allowed Telegram users in `data/config.json`. The bot only reacts to Telegram user IDs listed there. Each user also sets `balance_token_address`, which is the token checked for the target account balance.
 
+To find a Telegram user ID, have the user send `/start` to the bot before they
+are added to `data/config.json`, then check the bot logs for
+`telegram_user_id=...`. Put that numeric ID in `users[].telegram_user_id`. If
+the user should receive admin error notifications, also use that ID for
+`admin_telegram_user_id`.
+
+If the bot is not running, send a message to the bot and inspect Telegram
+updates directly:
+
+```bash
+curl "https://api.telegram.org/bot$BOT_TOKEN/getUpdates"
+```
+
 ## Balance Check Interval
 
 Balance checks read Optimism token balances through Blockscout PRO API on chain id `10`.
