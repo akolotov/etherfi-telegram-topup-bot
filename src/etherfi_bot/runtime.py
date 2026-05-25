@@ -14,11 +14,8 @@ from etherfi_bot.polling import (
 )
 from etherfi_bot.ports import BalanceProvider, PrivateKeyProvider, SafeWalletClient
 from etherfi_bot.private_keys import FilePrivateKeyProvider
-from etherfi_bot.safe_wallet import (
-    AaveV3NativeUsdcWithdrawPreparer,
-    SafeTxServiceClient,
-    SafeWalletTransactionServiceClient,
-)
+from etherfi_bot.safe_tx_preparers import AaveV3NativeUsdcWithdrawPreparer
+from etherfi_bot.safe_wallet import SafeTxServiceClient, SafeWalletTransactionServiceClient
 from etherfi_bot.settings import RuntimeSettings
 from etherfi_bot.storage import JsonConfigRepository, JsonStateRepository
 from etherfi_bot.telegram_adapter import TelegramUpdateAdapter

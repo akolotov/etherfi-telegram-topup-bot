@@ -5,99 +5,21 @@ from typing import Any
 
 import pytest
 import requests
-from eth_abi import decode as decode_abi
 from eth_account import Account
 
-from etherfi_bot.blockscout import BlockscoutJsonRpcError
 from etherfi_bot.domain import SafeTxCreateError, SafeTxStatus, SafeTxStatusReadError
+from etherfi_bot.safe_tx_preparers import SafeTxCall, checksum
 from etherfi_bot.safe_wallet import (
-    AAVE_V3_ARBITRUM_POOL,
-    ARBITRUM_AAVE_NATIVE_USDC_ATOKEN,
-    ARBITRUM_NATIVE_USDC,
-    AaveV3NativeUsdcWithdrawPreparer,
     SafeTxServiceError,
     SafeTxServiceClient,
     SafeWalletTransactionServiceClient,
-    checksum,
-    decimal_to_base_units,
     proposer_address_from_key,
 )
 from tests.conftest import make_user
 
 
 PRIVATE_KEY = "0x" + "1".zfill(64)
-
-
-def test_aave_preflight_passes_when_safe_has_enough_ausdc() -> None:
-    blockscout = RecordingJsonRpc(result=uint256_hex(2_000_000))
-    preparer = AaveV3NativeUsdcWithdrawPreparer(blockscout)
-
-    preparer.preflight_check(
-        "0x0000000000000000000000000000000000000001",
-        Decimal("1.5"),
-        "0x0000000000000000000000000000000000000002",
-    )
-
-    assert blockscout.calls == [
-        {
-            "to": checksum(ARBITRUM_AAVE_NATIVE_USDC_ATOKEN),
-            "data": "0x70a08231"
-            "0000000000000000000000000000000000000000000000000000000000000001",
-        }
-    ]
-
-
-def test_aave_preflight_fails_when_safe_ausdc_balance_is_insufficient() -> None:
-    blockscout = RecordingJsonRpc(result=uint256_hex(999_999))
-    preparer = AaveV3NativeUsdcWithdrawPreparer(blockscout)
-
-    with pytest.raises(SafeTxCreateError, match="required 1000000"):
-        preparer.preflight_check(
-            "0x0000000000000000000000000000000000000001",
-            Decimal("1"),
-            "0x0000000000000000000000000000000000000002",
-        )
-
-
-def test_aave_preflight_wraps_blockscout_errors_as_safe_tx_create_failed() -> None:
-    preparer = AaveV3NativeUsdcWithdrawPreparer(FailingJsonRpc())
-
-    with pytest.raises(SafeTxCreateError, match="AAVE preflight balance check failed"):
-        preparer.preflight_check(
-            "0x0000000000000000000000000000000000000001",
-            Decimal("1"),
-            "0x0000000000000000000000000000000000000002",
-        )
-
-
-def test_decimal_to_base_units_requires_exact_token_precision() -> None:
-    assert decimal_to_base_units(Decimal("1.234567"), 6) == 1_234_567
-
-    with pytest.raises(ValueError, match="more precision"):
-        decimal_to_base_units(Decimal("0.0000001"), 6)
-
-
-def test_aave_prepare_transaction_builds_withdraw_call() -> None:
-    preparer = AaveV3NativeUsdcWithdrawPreparer(RecordingJsonRpc(result=uint256_hex(0)))
-    target = "0x0000000000000000000000000000000000000002"
-
-    call = preparer.prepare_transaction(
-        "0x0000000000000000000000000000000000000001",
-        Decimal("12.345678"),
-        target,
-    )
-
-    assert call.to == checksum(AAVE_V3_ARBITRUM_POOL)
-    assert call.value == 0
-    assert call.operation == 0
-    assert call.data[:4].hex() == "69328dec"
-    asset, amount, recipient = decode_abi(
-        ["address", "uint256", "address"],
-        call.data[4:],
-    )
-    assert checksum(asset) == checksum(ARBITRUM_NATIVE_USDC)
-    assert amount == 12_345_678
-    assert checksum(recipient) == checksum(target)
+TOP_UP_TO = "0x00000000000000000000000000000000000000f0"
 
 
 def test_safe_client_creates_top_up_proposal_without_listing_pending_transactions() -> None:
@@ -112,10 +34,9 @@ def test_safe_client_creates_top_up_proposal_without_listing_pending_transaction
         base_url="https://safe.test",
         session=session,
     )
-    blockscout = RecordingJsonRpc(result=uint256_hex(30_000_000))
     client = SafeWalletTransactionServiceClient(
         tx_service,
-        AaveV3NativeUsdcWithdrawPreparer(blockscout),
+        StaticPreparer(),
     )
 
     safe_tx_hash = client.create_top_up_tx(user, Decimal("17"), PRIVATE_KEY)
@@ -134,8 +55,9 @@ def test_safe_client_creates_top_up_proposal_without_listing_pending_transaction
         f"/api/v2/safes/{checksum(user.safe_account)}/multisig-transactions/"
     )
     payload = posted["json"]
-    assert payload["to"] == checksum(AAVE_V3_ARBITRUM_POOL)
+    assert payload["to"] == checksum(TOP_UP_TO)
     assert payload["value"] == 0
+    assert payload["data"] == "0x1234"
     assert payload["operation"] == 0
     assert payload["nonce"] == 18
     assert payload["contractTransactionHash"] == safe_tx_hash
@@ -152,9 +74,7 @@ def test_safe_client_fails_creation_when_proposer_is_not_registered() -> None:
     )
     client = SafeWalletTransactionServiceClient(
         SafeTxServiceClient("safe-api-key", base_url="https://safe.test", session=session),
-        AaveV3NativeUsdcWithdrawPreparer(
-            RecordingJsonRpc(result=uint256_hex(30_000_000))
-        ),
+        StaticPreparer(),
     )
 
     with pytest.raises(SafeTxCreateError, match="not registered as proposer"):
@@ -197,9 +117,7 @@ def test_safe_client_wraps_creation_network_errors_as_safe_tx_create_error() -> 
             base_url="https://safe.test",
             session=FailingSafeSession(),
         ),
-        AaveV3NativeUsdcWithdrawPreparer(
-            RecordingJsonRpc(result=uint256_hex(30_000_000))
-        ),
+        StaticPreparer(),
     )
 
     with pytest.raises(SafeTxCreateError):
@@ -214,7 +132,7 @@ def test_safe_client_wraps_status_network_errors_as_safe_tx_status_read_error() 
             base_url="https://safe.test",
             session=FailingSafeSession(),
         ),
-        AaveV3NativeUsdcWithdrawPreparer(RecordingJsonRpc(result=uint256_hex(0))),
+        StaticPreparer(),
     )
 
     with pytest.raises(SafeTxStatusReadError):
@@ -258,7 +176,7 @@ def test_safe_client_maps_transaction_status(
     )
     client = SafeWalletTransactionServiceClient(
         SafeTxServiceClient("safe-api-key", base_url="https://safe.test", session=session),
-        AaveV3NativeUsdcWithdrawPreparer(RecordingJsonRpc(result=uint256_hex(0))),
+        StaticPreparer(),
     )
 
     assert client.get_tx_status(user, "0xsafehash") is expected
@@ -271,31 +189,30 @@ def test_safe_client_wraps_status_read_errors() -> None:
     )
     client = SafeWalletTransactionServiceClient(
         SafeTxServiceClient("safe-api-key", base_url="https://safe.test", session=session),
-        AaveV3NativeUsdcWithdrawPreparer(RecordingJsonRpc(result=uint256_hex(0))),
+        StaticPreparer(),
     )
 
     with pytest.raises(SafeTxStatusReadError):
         client.get_tx_status(user, "0xsafehash")
 
 
-class RecordingJsonRpc:
-    def __init__(self, *, result: str) -> None:
-        self.result = result
-        self.calls: list[dict[str, str]] = []
+class StaticPreparer:
+    def preflight_check(
+        self,
+        safe_address: str,
+        amount: Decimal,
+        target_account: str,
+    ) -> None:
+        del safe_address, amount, target_account
 
-    def eth_call(self, *, to: str, data: bytes | str, block: str = "latest") -> str:
-        del block
-        data_hex = data.hex() if isinstance(data, bytes) else data
-        if not data_hex.startswith("0x"):
-            data_hex = f"0x{data_hex}"
-        self.calls.append({"to": to, "data": data_hex})
-        return self.result
-
-
-class FailingJsonRpc:
-    def eth_call(self, *, to: str, data: bytes | str, block: str = "latest") -> str:
-        del to, data, block
-        raise BlockscoutJsonRpcError("unavailable")
+    def prepare_transaction(
+        self,
+        safe_address: str,
+        amount: Decimal,
+        target_account: str,
+    ) -> SafeTxCall:
+        del safe_address, amount, target_account
+        return SafeTxCall(to=TOP_UP_TO, value=0, data=b"\x12\x34", operation=0)
 
 
 class RecordingSafeSession:
@@ -373,7 +290,3 @@ class FakeSafeResponse:
         if self._payload is None:
             raise ValueError("empty response")
         return self._payload
-
-
-def uint256_hex(value: int) -> str:
-    return f"0x{value:064x}"

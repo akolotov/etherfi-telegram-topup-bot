@@ -1,126 +1,26 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Protocol
+from typing import Any
 
 import requests
-from eth_abi import encode as encode_abi
 from eth_account import Account
-from hexbytes import HexBytes
-from safe_eth.safe import SafeOperationEnum, SafeTx
+from safe_eth.safe import SafeTx
 from safe_eth.util.util import to_0x_hex_str
-from web3 import Web3
 
-from etherfi_bot.blockscout import (
-    USER_AGENT,
-    BlockscoutJsonRpcClient,
-    BlockscoutJsonRpcError,
-)
+from etherfi_bot.blockscout import USER_AGENT
 from etherfi_bot.domain import (
     SafeTxCreateError,
     SafeTxStatus,
     SafeTxStatusReadError,
     UserConfig,
 )
+from etherfi_bot.safe_tx_preparers import SafeTxCall, SafeTxDataPreparer, checksum
 
 
 ARBITRUM_CHAIN_ID = 42161
 ARBITRUM_TX_SERVICE_BASE_URL = "https://api.safe.global/tx-service/arb1"
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
-
-AAVE_V3_ARBITRUM_POOL = "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
-ARBITRUM_NATIVE_USDC = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
-ARBITRUM_AAVE_NATIVE_USDC_ATOKEN = "0x724dc807b04555b71ed48a6896b6F41593b8C637"
-USDC_DECIMALS = 6
-
-
-@dataclass(frozen=True)
-class SafeTxCall:
-    to: str
-    value: int
-    data: bytes
-    operation: int
-
-
-class SafeTxDataPreparer(Protocol):
-    def preflight_check(
-        self,
-        safe_address: str,
-        amount: Decimal,
-        target_account: str,
-    ) -> None:
-        """Raise when the intended Safe transaction should not be proposed."""
-
-    def prepare_transaction(
-        self,
-        safe_address: str,
-        amount: Decimal,
-        target_account: str,
-    ) -> SafeTxCall:
-        """Return one Safe transaction call for the requested transfer."""
-
-
-class AaveV3NativeUsdcWithdrawPreparer:
-    def __init__(
-        self,
-        blockscout: BlockscoutJsonRpcClient,
-        *,
-        pool_address: str = AAVE_V3_ARBITRUM_POOL,
-        usdc_address: str = ARBITRUM_NATIVE_USDC,
-        ausdc_address: str = ARBITRUM_AAVE_NATIVE_USDC_ATOKEN,
-        decimals: int = USDC_DECIMALS,
-    ) -> None:
-        self.pool_address = checksum(pool_address)
-        self.usdc_address = checksum(usdc_address)
-        self.ausdc_address = checksum(ausdc_address)
-        self.decimals = int(decimals)
-        self._blockscout = blockscout
-
-    def preflight_check(
-        self,
-        safe_address: str,
-        amount: Decimal,
-        target_account: str,
-    ) -> None:
-        del target_account
-        amount_base_units = decimal_to_base_units(amount, self.decimals)
-        data = encode_contract_method(
-            "balanceOf",
-            ["address"],
-            [checksum(safe_address)],
-        )
-        try:
-            raw_balance = self._blockscout.eth_call(to=self.ausdc_address, data=data)
-            balance_base_units = uint256_from_hex(raw_balance)
-        except (BlockscoutJsonRpcError, ValueError) as error:
-            raise SafeTxCreateError("AAVE preflight balance check failed") from error
-        if balance_base_units < amount_base_units:
-            raise SafeTxCreateError(
-                "AAVE preflight balance check failed: "
-                f"required {amount_base_units} aUSDC base units, "
-                f"available {balance_base_units}"
-            )
-
-    def prepare_transaction(
-        self,
-        safe_address: str,
-        amount: Decimal,
-        target_account: str,
-    ) -> SafeTxCall:
-        del safe_address
-        amount_base_units = decimal_to_base_units(amount, self.decimals)
-        data = encode_contract_method(
-            "withdraw",
-            ["address", "uint256", "address"],
-            [self.usdc_address, amount_base_units, checksum(target_account)],
-        )
-        return SafeTxCall(
-            to=self.pool_address,
-            value=0,
-            data=data,
-            operation=SafeOperationEnum.CALL.value,
-        )
 
 
 class SafeTxServiceError(RuntimeError):
@@ -366,36 +266,6 @@ def propose_safe_tx(
 
 def proposer_address_from_key(proposer_private_key: str) -> str:
     return checksum(Account.from_key(proposer_private_key).address)
-
-
-def decimal_to_base_units(amount: Decimal, decimals: int) -> int:
-    scale = Decimal(10) ** int(decimals)
-    base_units = amount * scale
-    if base_units != base_units.to_integral_value():
-        raise ValueError(f"amount {amount} has more precision than {decimals} decimals")
-    return int(base_units)
-
-
-def encode_contract_method(
-    name: str,
-    solidity_types: list[str],
-    values: list[Any],
-) -> bytes:
-    selector = Web3.keccak(text=f"{name}({','.join(solidity_types)})")[:4]
-    return bytes(selector + encode_abi(solidity_types, values))
-
-
-def uint256_from_hex(value: str) -> int:
-    if not value.startswith("0x"):
-        raise ValueError("uint256 result must be 0x-prefixed")
-    result = HexBytes(value)
-    if len(result) > 32:
-        raise ValueError("uint256 result is longer than 32 bytes")
-    return int.from_bytes(result.rjust(32, b"\x00"), "big")
-
-
-def checksum(address: str) -> str:
-    return Web3.to_checksum_address(address)
 
 
 def _response_json_or_none(response: requests.Response) -> dict[str, Any] | None:
