@@ -2,6 +2,39 @@
 
 Telegram bot that monitors configured users and starts the top-up flow when a target account needs attention.
 
+## Top-Up Flow
+
+The Safe Wallet owns the funds on AAVEv3. When the target account balance is
+low, the bot proposes a Safe transaction that withdraws funds from AAVEv3 and
+sends them directly to the target account.
+
+```mermaid
+sequenceDiagram
+    participant Bot as Telegram bot
+    participant Target as Target account
+    participant Safe as Safe Wallet
+    participant Aave as AAVEv3 Pool
+
+    Bot->>Safe: Propose Safe transaction
+    Note over Safe,Aave: Safe owns the AAVEv3 position
+
+    Safe->>Aave: withdraw(asset, amount, targetAccount)
+    Aave-->>Safe: Reduce Safe-owned AAVEv3 balance
+    Aave-->>Target: Transfer withdrawn funds
+
+    Note over Target: Receives funds, but does not own the AAVEv3 position
+```
+
+Proposed Safe transaction:
+
+| Field | Value |
+| --- | --- |
+| From | Safe Wallet |
+| To | AAVEv3 Pool |
+| Method | `withdraw(asset, amount, targetAccount)` |
+| Recipient | Target account |
+| Effect | Funds leave the Safe-owned AAVEv3 position and are sent to the target account |
+
 ## Setup
 
 Create and activate a Python 3.12 virtual environment, then install the project:
