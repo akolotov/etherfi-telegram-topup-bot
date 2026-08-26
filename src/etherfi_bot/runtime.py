@@ -65,6 +65,9 @@ def build_runtime(settings: RuntimeSettings) -> RuntimeComponents:
         BlockscoutJsonRpcClient(
             settings.blockscout_pro_api_key,
             chain_id=OPTIMISM_CHAIN_ID,
+            max_attempts=settings.blockscout_max_attempts,
+            retry_initial_delay_seconds=settings.blockscout_retry_initial_delay_seconds,
+            retry_backoff_factor=settings.blockscout_retry_backoff_factor,
         )
     )
     optimism_token_reader.preload_decimals(
@@ -75,6 +78,9 @@ def build_runtime(settings: RuntimeSettings) -> RuntimeComponents:
         BlockscoutJsonRpcClient(
             settings.blockscout_pro_api_key,
             chain_id=str(ARBITRUM_CHAIN_ID),
+            max_attempts=settings.blockscout_max_attempts,
+            retry_initial_delay_seconds=settings.blockscout_retry_initial_delay_seconds,
+            retry_backoff_factor=settings.blockscout_retry_backoff_factor,
         )
     )
     top_up_preparer = AaveV3NativeUsdcWithdrawPreparer(arbitrum_token_reader)

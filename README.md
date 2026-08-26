@@ -97,6 +97,9 @@ Useful environment overrides:
 - `POLL_TIMEOUT_SECONDS`: Telegram long-poll timeout, default `25`
 - `LOG_LEVEL`: runtime log level, default `INFO`
 - `BLOCKSCOUT_PRO_API_KEY`: Blockscout PRO API key, required for balance checks
+- `BLOCKSCOUT_MAX_ATTEMPTS`: total attempts for a transient Blockscout request, default `3`
+- `BLOCKSCOUT_RETRY_INITIAL_DELAY_SECONDS`: wait before the first retry, default `0.5`
+- `BLOCKSCOUT_RETRY_BACKOFF_FACTOR`: multiplier for each subsequent retry delay, default `2`
 
 ## Docker
 

@@ -205,6 +205,76 @@ def test_blockscout_json_rpc_client_sends_eth_call_request_and_returns_result() 
     }
 
 
+def test_blockscout_json_rpc_client_retries_transient_failures_with_backoff() -> None:
+    unavailable = URLError("network unavailable")
+    opener = SequencedOpener([unavailable, unavailable, rpc_result(123)])
+    delays: list[float] = []
+    client = BlockscoutJsonRpcClient(
+        "proapi_test",
+        max_attempts=3,
+        retry_initial_delay_seconds=0.25,
+        retry_backoff_factor=2,
+        opener=opener,
+        sleeper=delays.append,
+    )
+
+    result = client.eth_call(
+        to="0x724dc807b04555b71ed48a6896b6F41593b8C637", data="0x1234"
+    )
+
+    assert result == uint256_hex(123)
+    assert len(opener.requests) == 3
+    assert delays == [0.25, 0.5]
+
+
+def test_blockscout_json_rpc_client_does_not_retry_non_transient_http_errors() -> None:
+    opener = SequencedOpener(
+        [
+            HTTPError(
+                "https://api.blockscout.com",
+                401,
+                "Unauthorized",
+                None,
+                None,
+            )
+        ]
+    )
+    delays: list[float] = []
+    client = BlockscoutJsonRpcClient(
+        "proapi_test",
+        max_attempts=3,
+        opener=opener,
+        sleeper=delays.append,
+    )
+
+    with pytest.raises(BlockscoutJsonRpcError, match="HTTP 401 after 1 attempt"):
+        client.eth_call(
+            to="0x724dc807b04555b71ed48a6896b6F41593b8C637", data="0x1234"
+        )
+
+    assert len(opener.requests) == 1
+    assert delays == []
+
+
+def test_blockscout_balance_provider_preserves_final_retry_error_details() -> None:
+    provider = BlockscoutBalanceProvider(
+        BlockscoutErc20BalanceReader(
+            BlockscoutJsonRpcClient(
+                "proapi_test",
+                max_attempts=2,
+                retry_initial_delay_seconds=0,
+                opener=SequencedOpener(
+                    [URLError("network unavailable"), URLError("network unavailable")]
+                ),
+            ),
+            decimals_by_token_address={make_user().balance_token_address: 6},
+        )
+    )
+
+    with pytest.raises(BalanceReadError, match="after 2 attempts"):
+        provider.get_balance(make_user())
+
+
 @pytest.mark.parametrize(
     "opener_factory",
     [
@@ -310,6 +380,20 @@ class RecordingOpener:
         if not self._raw_bodies:
             raise AssertionError("no response queued")
         return FakeResponse(self._raw_bodies.pop(0))
+
+
+class SequencedOpener:
+    def __init__(self, outcomes: list[Exception | dict[str, object]]) -> None:
+        self._outcomes = outcomes
+        self.requests = []
+
+    def __call__(self, request, *, timeout: float):
+        del timeout
+        self.requests.append(request)
+        outcome = self._outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return FakeResponse(json.dumps(outcome))
 
 
 class FakeResponse:

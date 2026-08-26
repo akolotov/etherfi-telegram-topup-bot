@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from time import sleep
 from decimal import Decimal
 from typing import Any, Callable, Iterable, Protocol
 from urllib.error import HTTPError, URLError
@@ -40,7 +41,7 @@ class BlockscoutBalanceProvider:
             decimals = self._token_reader.get_decimals(user.balance_token_address)
             return _decimal_from_raw_token_units(balance_base_units, decimals)
         except BlockscoutJsonRpcError as error:
-            raise BalanceReadError("Blockscout balance request failed") from error
+            raise BalanceReadError(str(error)) from error
         except ValueError as error:
             raise BalanceReadError("Blockscout balance response is invalid") from error
 
@@ -100,15 +101,29 @@ class BlockscoutJsonRpcClient:
         base_url: str = BLOCKSCOUT_BASE_URL,
         chain_id: str = "42161",
         timeout_seconds: float = 10,
+        max_attempts: int = 3,
+        retry_initial_delay_seconds: float = 0.5,
+        retry_backoff_factor: float = 2,
         opener: Callable[..., Any] = urlopen,
+        sleeper: Callable[[float], None] = sleep,
     ) -> None:
         if not api_key:
             raise ValueError("api_key must not be empty")
+        if max_attempts < 1:
+            raise ValueError("max_attempts must be >= 1")
+        if retry_initial_delay_seconds < 0:
+            raise ValueError("retry_initial_delay_seconds must be >= 0")
+        if retry_backoff_factor < 1:
+            raise ValueError("retry_backoff_factor must be >= 1")
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._chain_id = str(chain_id)
         self._timeout_seconds = timeout_seconds
+        self._max_attempts = max_attempts
+        self._retry_initial_delay_seconds = retry_initial_delay_seconds
+        self._retry_backoff_factor = retry_backoff_factor
         self._opener = opener
+        self._sleeper = sleeper
 
     def eth_call(self, *, to: str, data: bytes | str, block: str = "latest") -> str:
         data_hex = data.hex() if isinstance(data, bytes) else data
@@ -131,21 +146,39 @@ class BlockscoutJsonRpcClient:
             },
             method="POST",
         )
-        try:
-            with self._opener(request, timeout=self._timeout_seconds) as response:
-                body = response.read().decode("utf-8")
-            rpc_response = json.loads(body)
-            return _extract_eth_call_result(rpc_response)
-        except HTTPError as error:
-            raise BlockscoutJsonRpcError(
-                f"Blockscout JSON-RPC request failed with HTTP {error.code}"
-            ) from error
-        except (URLError, OSError) as error:
-            raise BlockscoutJsonRpcError("Blockscout JSON-RPC request failed") from error
-        except (json.JSONDecodeError, TypeError, ValueError) as error:
-            raise BlockscoutJsonRpcError(
-                "Blockscout JSON-RPC response is invalid"
-            ) from error
+        for attempt in range(1, self._max_attempts + 1):
+            try:
+                with self._opener(request, timeout=self._timeout_seconds) as response:
+                    body = response.read().decode("utf-8")
+            except HTTPError as error:
+                request_cause = error
+                request_error = BlockscoutJsonRpcError(
+                    f"Blockscout JSON-RPC request failed with HTTP {error.code}"
+                )
+                retryable = error.code == 429 or 500 <= error.code < 600
+            except (URLError, OSError) as error:
+                request_cause = error
+                request_error = BlockscoutJsonRpcError("Blockscout JSON-RPC request failed")
+                retryable = True
+            else:
+                try:
+                    rpc_response = json.loads(body)
+                    return _extract_eth_call_result(rpc_response)
+                except (json.JSONDecodeError, TypeError, ValueError) as error:
+                    raise BlockscoutJsonRpcError(
+                        "Blockscout JSON-RPC response is invalid after 1 attempt"
+                    ) from error
+
+            if not retryable or attempt == self._max_attempts:
+                raise BlockscoutJsonRpcError(
+                    f"{request_error} after {attempt} attempt{'s' if attempt != 1 else ''}"
+                ) from request_cause
+            self._sleeper(
+                self._retry_initial_delay_seconds
+                * self._retry_backoff_factor ** (attempt - 1)
+            )
+
+        raise AssertionError("unreachable")
 
 
 def _extract_eth_call_result(data: Any) -> str:
