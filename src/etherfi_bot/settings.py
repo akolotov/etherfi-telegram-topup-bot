@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from math import isfinite
 from pathlib import Path
 from typing import Mapping
 
@@ -19,6 +20,9 @@ class RuntimeSettings:
     polling_offset_path: Path = Path("data/polling_offset.json")
     polling_pending_update_path: Path = Path("data/polling_pending_update.json")
     poll_timeout_seconds: int = 25
+    blockscout_max_attempts: int = 3
+    blockscout_retry_initial_delay_seconds: float = 0.5
+    blockscout_retry_backoff_factor: float = 2
     log_level: str = "INFO"
 
     @classmethod
@@ -44,6 +48,29 @@ class RuntimeSettings:
             safe_transaction_service_api_key
         ):
             raise RuntimeError("SAFE_TRANSACTION_SERVICE_API_KEY is required")
+        blockscout_max_attempts = int(values.get("BLOCKSCOUT_MAX_ATTEMPTS", "3"))
+        blockscout_retry_initial_delay_seconds = float(
+            values.get("BLOCKSCOUT_RETRY_INITIAL_DELAY_SECONDS", "0.5")
+        )
+        blockscout_retry_backoff_factor = float(
+            values.get("BLOCKSCOUT_RETRY_BACKOFF_FACTOR", "2")
+        )
+        if blockscout_max_attempts < 1:
+            raise RuntimeError("BLOCKSCOUT_MAX_ATTEMPTS must be >= 1")
+        if (
+            not isfinite(blockscout_retry_initial_delay_seconds)
+            or blockscout_retry_initial_delay_seconds < 0
+        ):
+            raise RuntimeError(
+                "BLOCKSCOUT_RETRY_INITIAL_DELAY_SECONDS must be finite and >= 0"
+            )
+        if (
+            not isfinite(blockscout_retry_backoff_factor)
+            or blockscout_retry_backoff_factor < 1
+        ):
+            raise RuntimeError(
+                "BLOCKSCOUT_RETRY_BACKOFF_FACTOR must be finite and >= 1"
+            )
         ingress_mode = values.get("INGRESS_MODE", "polling")
         if ingress_mode != "polling":
             raise RuntimeError(f"Unsupported INGRESS_MODE={ingress_mode!r}; use 'polling'")
@@ -72,6 +99,9 @@ class RuntimeSettings:
                 )
             ),
             poll_timeout_seconds=int(values.get("POLL_TIMEOUT_SECONDS", "25")),
+            blockscout_max_attempts=blockscout_max_attempts,
+            blockscout_retry_initial_delay_seconds=blockscout_retry_initial_delay_seconds,
+            blockscout_retry_backoff_factor=blockscout_retry_backoff_factor,
             log_level=values.get("LOG_LEVEL", "INFO"),
         )
 

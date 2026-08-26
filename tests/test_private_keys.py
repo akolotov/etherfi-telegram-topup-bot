@@ -145,9 +145,10 @@ def test_build_runtime_wires_real_safe_wallet_client(
 class FakeBlockscoutJsonRpcClient:
     created: list["FakeBlockscoutJsonRpcClient"] = []
 
-    def __init__(self, api_key: str, *, chain_id: str) -> None:
+    def __init__(self, api_key: str, *, chain_id: str, **kwargs) -> None:
         self.api_key = api_key
         self.chain_id = str(chain_id)
+        self.kwargs = kwargs
         self.created.append(self)
 
 
