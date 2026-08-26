@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from math import isfinite
 from pathlib import Path
 from typing import Mapping
 
@@ -56,10 +57,20 @@ class RuntimeSettings:
         )
         if blockscout_max_attempts < 1:
             raise RuntimeError("BLOCKSCOUT_MAX_ATTEMPTS must be >= 1")
-        if blockscout_retry_initial_delay_seconds < 0:
-            raise RuntimeError("BLOCKSCOUT_RETRY_INITIAL_DELAY_SECONDS must be >= 0")
-        if blockscout_retry_backoff_factor < 1:
-            raise RuntimeError("BLOCKSCOUT_RETRY_BACKOFF_FACTOR must be >= 1")
+        if (
+            not isfinite(blockscout_retry_initial_delay_seconds)
+            or blockscout_retry_initial_delay_seconds < 0
+        ):
+            raise RuntimeError(
+                "BLOCKSCOUT_RETRY_INITIAL_DELAY_SECONDS must be finite and >= 0"
+            )
+        if (
+            not isfinite(blockscout_retry_backoff_factor)
+            or blockscout_retry_backoff_factor < 1
+        ):
+            raise RuntimeError(
+                "BLOCKSCOUT_RETRY_BACKOFF_FACTOR must be finite and >= 1"
+            )
         ingress_mode = values.get("INGRESS_MODE", "polling")
         if ingress_mode != "polling":
             raise RuntimeError(f"Unsupported INGRESS_MODE={ingress_mode!r}; use 'polling'")
@@ -84,13 +95,13 @@ class RuntimeSettings:
             polling_pending_update_path=Path(
                 values.get(
                     "POLLING_PENDING_UPDATE_PATH",
-            blockscout_max_attempts=blockscout_max_attempts,
-            blockscout_retry_initial_delay_seconds=blockscout_retry_initial_delay_seconds,
-            blockscout_retry_backoff_factor=blockscout_retry_backoff_factor,
                     "data/polling_pending_update.json",
                 )
             ),
             poll_timeout_seconds=int(values.get("POLL_TIMEOUT_SECONDS", "25")),
+            blockscout_max_attempts=blockscout_max_attempts,
+            blockscout_retry_initial_delay_seconds=blockscout_retry_initial_delay_seconds,
+            blockscout_retry_backoff_factor=blockscout_retry_backoff_factor,
             log_level=values.get("LOG_LEVEL", "INFO"),
         )
 

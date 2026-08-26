@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
-from time import sleep
 from decimal import Decimal
+from math import isfinite
+from time import sleep
 from typing import Any, Callable, Iterable, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -111,10 +112,10 @@ class BlockscoutJsonRpcClient:
             raise ValueError("api_key must not be empty")
         if max_attempts < 1:
             raise ValueError("max_attempts must be >= 1")
-        if retry_initial_delay_seconds < 0:
-            raise ValueError("retry_initial_delay_seconds must be >= 0")
-        if retry_backoff_factor < 1:
-            raise ValueError("retry_backoff_factor must be >= 1")
+        if not isfinite(retry_initial_delay_seconds) or retry_initial_delay_seconds < 0:
+            raise ValueError("retry_initial_delay_seconds must be finite and >= 0")
+        if not isfinite(retry_backoff_factor) or retry_backoff_factor < 1:
+            raise ValueError("retry_backoff_factor must be finite and >= 1")
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._chain_id = str(chain_id)

@@ -71,6 +71,37 @@ def test_runtime_settings_reads_blockscout_retry_configuration(tmp_path) -> None
     assert settings.blockscout_retry_backoff_factor == 1.5
 
 
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("BLOCKSCOUT_RETRY_INITIAL_DELAY_SECONDS", "nan"),
+        ("BLOCKSCOUT_RETRY_INITIAL_DELAY_SECONDS", "inf"),
+        ("BLOCKSCOUT_RETRY_BACKOFF_FACTOR", "nan"),
+        ("BLOCKSCOUT_RETRY_BACKOFF_FACTOR", "inf"),
+    ],
+)
+def test_runtime_settings_rejects_non_finite_blockscout_retry_configuration(
+    tmp_path,
+    key: str,
+    value: str,
+) -> None:
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "\n".join(
+            [
+                "BOT_TOKEN=123:ABC",
+                "BLOCKSCOUT_PRO_API_KEY=proapi_file_key",
+                "SAFE_TRANSACTION_SERVICE_API_KEY=safe_file_key",
+                f"{key}={value}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match=key):
+        RuntimeSettings.from_env_file(env_path, environ={})
+
+
 
 
 @pytest.mark.parametrize(

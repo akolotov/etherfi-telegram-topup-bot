@@ -256,6 +256,25 @@ def test_blockscout_json_rpc_client_does_not_retry_non_transient_http_errors() -
     assert delays == []
 
 
+@pytest.mark.parametrize(
+    ("parameter", "value"),
+    [
+        ("retry_initial_delay_seconds", float("nan")),
+        ("retry_initial_delay_seconds", float("inf")),
+        ("retry_backoff_factor", float("nan")),
+        ("retry_backoff_factor", float("inf")),
+    ],
+)
+def test_blockscout_json_rpc_client_rejects_non_finite_retry_configuration(
+    parameter: str,
+    value: float,
+) -> None:
+    arguments = {parameter: value}
+
+    with pytest.raises(ValueError, match="finite"):
+        BlockscoutJsonRpcClient("proapi_test", **arguments)
+
+
 def test_blockscout_balance_provider_preserves_final_retry_error_details() -> None:
     provider = BlockscoutBalanceProvider(
         BlockscoutErc20BalanceReader(
