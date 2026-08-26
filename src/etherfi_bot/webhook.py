@@ -39,6 +39,7 @@ class WebhookBotRunner:
         self._dispatcher = dispatcher
         self._webhook_url = webhook_url
         self._webhook_path = webhook_path
+        self._health_path = f"{webhook_path.rsplit('/', 1)[0]}/healthz"
         self._secret_token = secret_token
         self._listen_host = listen_host
         self._listen_port = listen_port
@@ -141,9 +142,17 @@ class WebhookBotRunner:
 
     def _run_scheduler(self) -> None:
         while not self._stop_scheduler.is_set():
-            self.process_due_ticks()
-            seconds = self._dispatcher.seconds_until_next_due_tick()
-            timeout = 60.0 if seconds is None else max(1.0, float(seconds))
+            try:
+                self.process_due_ticks()
+                seconds = self._dispatcher.seconds_until_next_due_tick()
+                timeout = 60.0 if seconds is None else max(1.0, float(seconds))
+            except Exception as error:
+                self._logger.exception(
+                    "webhook_scheduler_failed error_type=%s error=%s",
+                    type(error).__name__,
+                    error,
+                )
+                timeout = 5.0
             self._wake_scheduler.wait(timeout=timeout)
             self._wake_scheduler.clear()
 
@@ -156,7 +165,7 @@ class _WebhookRequestHandler(BaseHTTPRequestHandler):
     _runner: WebhookBotRunner
 
     def do_GET(self) -> None:
-        if urlsplit(self.path).path == "/healthz":
+        if urlsplit(self.path).path in {"/healthz", self._runner._health_path}:
             self._respond(HTTPStatus.OK)
             return
         self._respond(HTTPStatus.NOT_FOUND)

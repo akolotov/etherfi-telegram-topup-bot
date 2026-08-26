@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import socket
 import threading
 from pathlib import Path
@@ -135,6 +136,58 @@ def test_webhook_acknowledges_valid_update_when_processing_fails(tmp_path: Path)
         thread.join(timeout=2)
 
 
+def test_webhook_exposes_health_check_through_gateway_path(tmp_path: Path) -> None:
+    user = make_user(telegram_user_id=1001)
+    dispatcher, _states = _make_dispatcher(tmp_path, user)
+    runner = WebhookBotRunner(
+        api=RecordingWebhookApi(),
+        adapter=TelegramUpdateAdapter(dispatcher),
+        dispatcher=dispatcher,
+        webhook_url="https://example.test/hooks/etherfi-topup-bot/telegram/webhook",
+        webhook_path=WEBHOOK_PATH,
+        secret_token=WEBHOOK_SECRET,
+        listen_host="127.0.0.1",
+        listen_port=_free_port(),
+    )
+    server = runner.create_server()
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with urlopen(
+            f"http://127.0.0.1:{server.server_port}"
+            "/hooks/etherfi-topup-bot/telegram/healthz",
+            timeout=3,
+        ) as response:
+            assert response.status == 200
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_webhook_scheduler_retries_after_unexpected_failure(caplog) -> None:
+    dispatcher = RecoveringSchedulerDispatcher()
+    runner = WebhookBotRunner(
+        api=RecordingWebhookApi(),
+        adapter=FailingUpdateAdapter(),
+        dispatcher=dispatcher,
+        webhook_url="https://example.test/telegram/webhook",
+        webhook_path="/telegram/webhook",
+        secret_token=WEBHOOK_SECRET,
+    )
+    dispatcher.runner = runner
+    runner._wake_scheduler.set()
+
+    with caplog.at_level(logging.ERROR):
+        thread = threading.Thread(target=runner._run_scheduler, daemon=True)
+        thread.start()
+        thread.join(timeout=2)
+
+    assert not thread.is_alive()
+    assert dispatcher.due_user_ids_calls == 2
+    assert "webhook_scheduler_failed" in caplog.text
+
+
 def _make_dispatcher(tmp_path: Path, user):
     config_path = write_config(tmp_path / "config.json", [user])
     states = JsonStateRepository(tmp_path / "states")
@@ -203,3 +256,21 @@ class FailingUpdateAdapter:
     def handle_update(self, update: dict[str, Any]) -> str:
         self.handled_update_ids.append(int(update["update_id"]))
         raise RuntimeError("processing failed after a possible external side effect")
+
+
+class RecoveringSchedulerDispatcher:
+    def __init__(self) -> None:
+        self.runner: WebhookBotRunner | None = None
+        self.due_user_ids_calls = 0
+
+    def due_user_ids(self) -> list[int]:
+        self.due_user_ids_calls += 1
+        if self.due_user_ids_calls == 1:
+            raise RuntimeError("temporary state read failure")
+        assert self.runner is not None
+        self.runner._stop_scheduler.set()
+        self.runner._wake_scheduler.set()
+        return []
+
+    def seconds_until_next_due_tick(self) -> None:
+        return None

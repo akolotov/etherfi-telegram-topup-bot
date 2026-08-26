@@ -114,19 +114,15 @@ This deployment depends on the shared
 Deploy that gateway first: it creates the external `tailscale-ingress` Docker
 network and publishes the Funnel hostname used by `WEBHOOK_PUBLIC_BASE_URL`.
 
-```text
-https://wabelfish-funnel.taild8e94b.ts.net/hooks/etherfi-topup-bot/telegram/webhook
-```
-
 Set the matching values in `.env` before deployment. `WEBHOOK_SECRET_TOKEN`
 must be a new random 1-256 character value using only letters, digits,
 underscores, and hyphens; it is sent to Telegram during `setWebhook` and the
 receiver rejects requests that do not include it.
 
 ```dotenv
-WEBHOOK_PUBLIC_BASE_URL=https://wabelfish-funnel.taild8e94b.ts.net
-WEBHOOK_DOCKER_ALIAS=etherfi-topup-bot
-WEBHOOK_PATH=/hooks/etherfi-topup-bot/telegram/webhook
+WEBHOOK_PUBLIC_BASE_URL=https://<funnel-hostname>.<tailnet>.ts.net
+WEBHOOK_DOCKER_ALIAS=<docker-alias>
+WEBHOOK_PATH=/hooks/<docker-alias>/<webhook-endpoint>
 WEBHOOK_SECRET_TOKEN=<new-random-secret>
 ```
 
@@ -141,13 +137,13 @@ deployment. For example, a test deployment can use:
 
 ```dotenv
 BOT_TOKEN=<test-bot-token>
-WEBHOOK_DOCKER_ALIAS=etherfi-topup-bot-test
-WEBHOOK_PATH=/hooks/etherfi-topup-bot-test/telegram/webhook
+WEBHOOK_DOCKER_ALIAS=<test-docker-alias>
+WEBHOOK_PATH=/hooks/<test-docker-alias>/<webhook-endpoint>
 WEBHOOK_SECRET_TOKEN=<different-random-secret>
 ```
 
-Production may keep `etherfi-topup-bot` as its alias and path. Telegram permits
-only one webhook per bot token, so the test deployment must use a different
+Production and test must use different aliases and paths. Telegram permits only
+one webhook per bot token, so the test deployment must also use a different
 `BOT_TOKEN`.
 
 Start the gateway first if its shared Docker network does not yet exist, then
@@ -160,9 +156,10 @@ docker compose logs -f etherfi-topup-bot
 ```
 
 The bot registers the webhook at startup with the same update classes used by
-polling, a Telegram secret header, and one concurrent delivery. `GET /healthz`
-is available through the same route for liveness checks; the actual webhook
-accepts only `POST` at the full path above.
+polling, a Telegram secret header, and one concurrent delivery. A liveness
+check is available at `healthz` next to the configured webhook endpoint; the
+actual webhook accepts only `POST` at `WEBHOOK_PATH`. Direct container checks
+may also use `GET /healthz`.
 
 ## Docker
 
