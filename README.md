@@ -119,6 +119,13 @@ must be a new random 1-256 character value using only letters, digits,
 underscores, and hyphens; it is sent to Telegram during `setWebhook` and the
 receiver rejects requests that do not include it.
 
+Generate a suitable secret with the project's virtualenv, then copy its output
+to `WEBHOOK_SECRET_TOKEN`:
+
+```sh
+.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
 ```dotenv
 WEBHOOK_PUBLIC_BASE_URL=https://<funnel-hostname>.<tailnet>.ts.net
 WEBHOOK_DOCKER_ALIAS=<docker-alias>
