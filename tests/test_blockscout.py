@@ -227,6 +227,25 @@ def test_blockscout_json_rpc_client_retries_transient_failures_with_backoff() ->
     assert delays == [0.25, 0.5]
 
 
+def test_blockscout_json_rpc_client_reports_attempt_count_after_invalid_response() -> None:
+    opener = SequencedOpener(
+        [URLError("network unavailable"), {"jsonrpc": "2.0", "id": 1, "result": 123}]
+    )
+    client = BlockscoutJsonRpcClient(
+        "proapi_test",
+        max_attempts=3,
+        retry_initial_delay_seconds=0,
+        opener=opener,
+    )
+
+    with pytest.raises(BlockscoutJsonRpcError, match="invalid after 2 attempts"):
+        client.eth_call(
+            to="0x724dc807b04555b71ed48a6896b6F41593b8C637", data="0x1234"
+        )
+
+    assert len(opener.requests) == 2
+
+
 def test_blockscout_json_rpc_client_does_not_retry_non_transient_http_errors() -> None:
     opener = SequencedOpener(
         [

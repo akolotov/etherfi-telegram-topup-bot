@@ -167,7 +167,8 @@ class BlockscoutJsonRpcClient:
                     return _extract_eth_call_result(rpc_response)
                 except (json.JSONDecodeError, TypeError, ValueError) as error:
                     raise BlockscoutJsonRpcError(
-                        "Blockscout JSON-RPC response is invalid after 1 attempt"
+                        "Blockscout JSON-RPC response is invalid "
+                        f"after {attempt} attempt{'s' if attempt != 1 else ''}"
                     ) from error
 
             if not retryable or attempt == self._max_attempts:
