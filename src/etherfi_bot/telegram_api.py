@@ -76,6 +76,28 @@ class TelegramBotApiClient:
             )
         )
 
+    def set_webhook(
+        self,
+        *,
+        url: str,
+        secret_token: str,
+        allowed_updates: list[str],
+        max_connections: int = 1,
+        drop_pending_updates: bool = False,
+    ) -> bool:
+        return bool(
+            self._request(
+                "setWebhook",
+                {
+                    "url": url,
+                    "secret_token": secret_token,
+                    "allowed_updates": allowed_updates,
+                    "max_connections": int(max_connections),
+                    "drop_pending_updates": bool(drop_pending_updates),
+                },
+            )
+        )
+
     def send_message(
         self,
         *,

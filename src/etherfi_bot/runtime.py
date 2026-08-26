@@ -29,6 +29,7 @@ from etherfi_bot.settings import RuntimeSettings
 from etherfi_bot.storage import JsonConfigRepository, JsonStateRepository
 from etherfi_bot.telegram_adapter import TelegramUpdateAdapter
 from etherfi_bot.telegram_api import TelegramBotApiClient, TelegramBotGateway
+from etherfi_bot.webhook import WebhookBotRunner
 
 
 class SystemClock:
@@ -150,7 +151,8 @@ def main(argv: list[str] | None = None) -> None:
     logger.info(
         "runtime_start ingress_mode=%s log_level=%s telegram_api_base_url=%s "
         "config_path=%s state_dir=%s polling_offset_path=%s "
-        "polling_pending_update_path=%s poll_timeout_seconds=%s",
+        "polling_pending_update_path=%s poll_timeout_seconds=%s webhook_path=%s "
+        "webhook_listen_host=%s webhook_listen_port=%s",
         settings.ingress_mode,
         log_level_name,
         settings.telegram_api_base_url,
@@ -159,11 +161,27 @@ def main(argv: list[str] | None = None) -> None:
         settings.polling_offset_path,
         settings.polling_pending_update_path,
         settings.poll_timeout_seconds,
+        settings.webhook_path,
+        settings.webhook_listen_host,
+        settings.webhook_listen_port,
     )
-    if settings.ingress_mode != "polling":
-        raise RuntimeError("Only polling ingress is supported in this development phase")
     components = build_runtime(settings)
-    components.runner.run_forever()
+    if settings.ingress_mode == "polling":
+        components.runner.run_forever()
+        return
+    if settings.webhook_secret_token is None:
+        raise RuntimeError("WEBHOOK_SECRET_TOKEN is required for webhook ingress")
+    webhook_runner = WebhookBotRunner(
+        api=components.api,
+        adapter=components.adapter,
+        dispatcher=components.dispatcher,
+        webhook_url=settings.webhook_url,
+        webhook_path=settings.webhook_path,
+        secret_token=settings.webhook_secret_token,
+        listen_host=settings.webhook_listen_host,
+        listen_port=settings.webhook_listen_port,
+    )
+    webhook_runner.run_forever()
 
 
 def resolve_log_level(raw_log_level: str) -> tuple[int, str, str | None]:

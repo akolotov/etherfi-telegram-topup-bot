@@ -82,7 +82,7 @@ For larger user counts, see [docs/balance-check-interval.md](docs/balance-check-
 
 ## Run
 
-The current runtime uses Telegram polling:
+The default development runtime uses Telegram polling:
 
 ```bash
 .venv/bin/python -m etherfi_bot.runtime
@@ -95,11 +95,74 @@ Useful environment overrides:
 - `POLLING_OFFSET_PATH`: persisted Telegram polling offset, default `data/polling_offset.json`
 - `POLLING_PENDING_UPDATE_PATH`: pending Telegram update recovery file, default `data/polling_pending_update.json`
 - `POLL_TIMEOUT_SECONDS`: Telegram long-poll timeout, default `25`
+- `INGRESS_MODE`: `polling` (development default) or `webhook`
 - `LOG_LEVEL`: runtime log level, default `INFO`
 - `BLOCKSCOUT_PRO_API_KEY`: Blockscout PRO API key, required for balance checks
 - `BLOCKSCOUT_MAX_ATTEMPTS`: total attempts for a transient Blockscout request, default `3`
 - `BLOCKSCOUT_RETRY_INITIAL_DELAY_SECONDS`: wait before the first retry, default `0.5`
 - `BLOCKSCOUT_RETRY_BACKOFF_FACTOR`: multiplier for each subsequent retry delay, default `2`
+
+## Webhook through Tailscale Funnel
+
+The shared Tailscale gateway on this machine already exposes the generic
+`/hooks/<docker-alias>/...` route. The Compose service reads its network alias
+from `WEBHOOK_DOCKER_ALIAS`; it must match the `<docker-alias>` segment in
+`WEBHOOK_PATH`.
+
+This deployment depends on the shared
+[tailscale-funnel-gateway](https://github.com/akolotov/tailscale-funnel-gateway).
+Deploy that gateway first: it creates the external `tailscale-ingress` Docker
+network and publishes the Funnel hostname used by `WEBHOOK_PUBLIC_BASE_URL`.
+
+```text
+https://wabelfish-funnel.taild8e94b.ts.net/hooks/etherfi-topup-bot/telegram/webhook
+```
+
+Set the matching values in `.env` before deployment. `WEBHOOK_SECRET_TOKEN`
+must be a new random 1-256 character value using only letters, digits,
+underscores, and hyphens; it is sent to Telegram during `setWebhook` and the
+receiver rejects requests that do not include it.
+
+```dotenv
+WEBHOOK_PUBLIC_BASE_URL=https://wabelfish-funnel.taild8e94b.ts.net
+WEBHOOK_DOCKER_ALIAS=etherfi-topup-bot
+WEBHOOK_PATH=/hooks/etherfi-topup-bot/telegram/webhook
+WEBHOOK_SECRET_TOKEN=<new-random-secret>
+```
+
+## Parallel production and test deployments
+
+Run production and test from separate directories, each with its own `.env`,
+`bot-state`, and Telegram bot token. The Compose file does not set a global
+`container_name`, so Compose namespaces containers by project directory.
+
+The shared Funnel needs a different network alias and matching path for every
+deployment. For example, a test deployment can use:
+
+```dotenv
+BOT_TOKEN=<test-bot-token>
+WEBHOOK_DOCKER_ALIAS=etherfi-topup-bot-test
+WEBHOOK_PATH=/hooks/etherfi-topup-bot-test/telegram/webhook
+WEBHOOK_SECRET_TOKEN=<different-random-secret>
+```
+
+Production may keep `etherfi-topup-bot` as its alias and path. Telegram permits
+only one webhook per bot token, so the test deployment must use a different
+`BOT_TOKEN`.
+
+Start the gateway first if its shared Docker network does not yet exist, then
+recreate the bot container. No host port is published.
+
+```bash
+cd ~/services/tailscale && docker compose up -d
+cd ~/projects/ether.fi-bot && docker compose up -d --build
+docker compose logs -f etherfi-topup-bot
+```
+
+The bot registers the webhook at startup with the same update classes used by
+polling, a Telegram secret header, and one concurrent delivery. `GET /healthz`
+is available through the same route for liveness checks; the actual webhook
+accepts only `POST` at the full path above.
 
 ## Docker
 
