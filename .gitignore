@@ -13,3 +13,4 @@ bot-state/
 .DS_Store
 .ai
 .env
+/docker-compose.agent.local.yml
