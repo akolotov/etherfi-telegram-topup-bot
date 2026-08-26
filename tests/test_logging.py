@@ -192,11 +192,12 @@ def test_adapter_logs_ignored_updates_and_callback_ack_failures(tmp_path, caplog
     assert any("error_type=RuntimeError" in message for message in messages)
 
 
-def test_telegram_api_debug_payload_sanitizer_redacts_text_fields() -> None:
+def test_telegram_api_debug_payload_sanitizer_redacts_sensitive_fields() -> None:
     sanitized = _sanitize_payload(
         {
             "chat_id": 1,
             "text": "message body",
+            "secret_token": "webhook-secret",
             "reply_markup": {
                 "inline_keyboard": [[{"text": "Top Up", "callback_data": "top_up"}]]
             },
@@ -204,6 +205,7 @@ def test_telegram_api_debug_payload_sanitizer_redacts_text_fields() -> None:
     )
 
     assert sanitized["text"] == "<redacted>"
+    assert sanitized["secret_token"] == "<redacted>"
     assert sanitized["reply_markup"]["inline_keyboard"][0][0]["text"] == "<redacted>"
     assert sanitized["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "top_up"
 

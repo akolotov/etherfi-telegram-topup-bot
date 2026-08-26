@@ -9,6 +9,8 @@ from urllib.request import Request, urlopen
 
 from etherfi_bot.domain import TelegramForbiddenError, UserConfig
 
+SENSITIVE_PAYLOAD_KEYS = {"secret_token", "text"}
+
 
 class TelegramApiError(RuntimeError):
     """Telegram Bot API returned an unsuccessful response."""
@@ -228,7 +230,11 @@ class TelegramBotApiClient:
 
 def _sanitize_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {
-        key: "<redacted>" if key == "text" else _sanitize_payload_value(value)
+        key: (
+            "<redacted>"
+            if key in SENSITIVE_PAYLOAD_KEYS
+            else _sanitize_payload_value(value)
+        )
         for key, value in payload.items()
     }
 

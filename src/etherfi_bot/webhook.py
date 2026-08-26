@@ -185,11 +185,16 @@ class _WebhookRequestHandler(BaseHTTPRequestHandler):
             self._respond(HTTPStatus.BAD_REQUEST)
         except Exception as error:
             self._runner._logger.exception(
-                "webhook_request status=failed ingress_mode=webhook error_type=%s error=%s",
+                "webhook_request status=processing_failed ingress_mode=webhook "
+                "delivery_acknowledged=true error_type=%s error=%s",
                 type(error).__name__,
                 error,
             )
-            self._respond(HTTPStatus.INTERNAL_SERVER_ERROR)
+            # Telegram retries non-2xx webhook responses. A retry can repeat an
+            # external side effect that completed before local processing failed,
+            # so valid authenticated updates follow the polling runner's
+            # at-most-once failure behavior and are acknowledged here.
+            self._respond(HTTPStatus.OK)
         else:
             self._respond(HTTPStatus.OK)
 
