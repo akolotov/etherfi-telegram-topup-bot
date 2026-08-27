@@ -155,12 +155,17 @@ Production and test must use different aliases and paths. Telegram permits only
 one webhook per bot token, so the test deployment must also use a different
 `BOT_TOKEN`.
 
-Start the gateway first if its shared Docker network does not yet exist, then
-recreate the bot container. No host port is published.
+Start the gateway from its checkout first if its shared Docker network does not
+yet exist. Then, from this repository's checkout, pull and recreate the bot
+container. No host port is published.
 
 ```bash
-cd ~/services/tailscale && docker compose up -d
-cd ~/projects/ether.fi-bot && docker compose up -d --build
+# In the tailscale-funnel-gateway checkout:
+docker compose up -d
+
+# In this repository's checkout:
+docker compose pull
+docker compose up -d
 docker compose logs -f etherfi-topup-bot
 ```
 
@@ -171,11 +176,29 @@ time.
 
 ## Docker
 
-Build the local image, then create the host state directory:
+GitHub Actions publishes multi-platform images to GitHub Container Registry:
+
+`ghcr.io/akolotov/etherfi-telegram-topup-bot`
+
+Each push to `main` publishes the temporary `main` tag. Pushing a release tag
+such as `v1.2.3` publishes `1.2.3`, `1.2`, `1`, and `latest`. The Compose
+deployment uses `latest`, so update it with `docker compose pull` before
+recreating the service.
+
+To build the local source instead, use the same image name that Compose uses,
+then create the host state directory:
 
 ```bash
-docker build -t akolotov/etherfi-telegram-topup-bot:latest .
+docker build -t ghcr.io/akolotov/etherfi-telegram-topup-bot:latest .
 mkdir -p bot-state
+```
+
+To test a published `main` image and retain that exact local copy after a
+future `main` update, create a local snapshot tag:
+
+```bash
+docker pull ghcr.io/akolotov/etherfi-telegram-topup-bot:main
+docker tag ghcr.io/akolotov/etherfi-telegram-topup-bot:main etherfi-topup-bot:main-snapshot
 ```
 
 Docker runtime files stay outside the image. Provide `.env`, `data/config.json`,
