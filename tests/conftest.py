@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import pytest
 
@@ -32,7 +33,46 @@ class FsmHarness:
     safe: MockSafeWalletClient
     private_keys: MockPrivateKeyProvider
     clock: MockClock
-    fsm: FsmService
+    fsm: "AsyncTestFacade"
+
+
+class AsyncTestFacade:
+    """Let legacy synchronous assertions exercise an async service directly."""
+
+    _ASYNC_METHODS = {
+        "start",
+        "balance_tick",
+        "callback_top_up",
+        "callback_ignore",
+        "user_blocked",
+        "ignore_event",
+        "recover_missing_user_states",
+        "restart",
+    }
+
+    def __init__(self, delegate: Any) -> None:
+        object.__setattr__(self, "delegate", delegate)
+
+    def __getattr__(self, name: str) -> Any:
+        value = getattr(self.delegate, name)
+        if name not in self._ASYNC_METHODS:
+            return value
+
+        def invoke(*args: Any, **kwargs: Any) -> Any:
+            coroutine = value(*args, **kwargs)
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                return asyncio.run(coroutine)
+            return coroutine
+
+        return invoke
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "delegate":
+            object.__setattr__(self, name, value)
+        else:
+            setattr(self.delegate, name, value)
 
 
 def make_user(
@@ -69,7 +109,7 @@ def harness_factory(tmp_path: Path) -> Callable[..., FsmHarness]:
         safe = MockSafeWalletClient()
         private_keys = MockPrivateKeyProvider({user_config.safe_proposer_key_file: "private-key"})
         clock = MockClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
-        fsm = FsmService(
+        fsm_service = FsmService(
             state_repository=states,
             telegram=telegram,
             balances=balances,
@@ -86,7 +126,7 @@ def harness_factory(tmp_path: Path) -> Callable[..., FsmHarness]:
             safe=safe,
             private_keys=private_keys,
             clock=clock,
-            fsm=fsm,
+            fsm=AsyncTestFacade(fsm_service),
         )
 
     return factory
@@ -151,4 +191,12 @@ def make_dispatcher(
         clock=clock,
         logger=logger,
     )
-    return dispatcher, states, telegram, balances, safe, private_keys, clock
+    return (
+        AsyncTestFacade(dispatcher),
+        states,
+        telegram,
+        balances,
+        safe,
+        private_keys,
+        clock,
+    )

@@ -51,21 +51,23 @@ class BotDispatcher:
         self._log_config_loaded()
         return self.config
 
-    def start(self, telegram_user_id: int) -> UserState | None:
+    async def start(self, telegram_user_id: int) -> UserState | None:
         user = self._configured_user(telegram_user_id)
         if user is None:
             self._log_unknown_user("start", telegram_user_id)
             return None
-        return self.fsm.start(user)
+        return await self.fsm.start(user)
 
-    def balance_tick(self, telegram_user_id: int) -> UserState | None:
+    async def balance_tick(self, telegram_user_id: int) -> UserState | None:
         user = self._configured_user(telegram_user_id)
         if user is None:
             self._log_unknown_user("balance_tick", telegram_user_id)
             return None
-        return self.fsm.balance_tick(user)
+        return await self.fsm.balance_tick(user)
 
-    def callback_top_up(self, telegram_user_id: int, message_id: int) -> UserState | None:
+    async def callback_top_up(
+        self, telegram_user_id: int, message_id: int
+    ) -> UserState | None:
         user = self._configured_user(telegram_user_id)
         if user is None:
             self._log_unknown_user(
@@ -74,9 +76,11 @@ class BotDispatcher:
                 message_id=message_id,
             )
             return None
-        return self.fsm.callback_top_up(user, message_id)
+        return await self.fsm.callback_top_up(user, message_id)
 
-    def callback_ignore(self, telegram_user_id: int, message_id: int) -> UserState | None:
+    async def callback_ignore(
+        self, telegram_user_id: int, message_id: int
+    ) -> UserState | None:
         user = self._configured_user(telegram_user_id)
         if user is None:
             self._log_unknown_user(
@@ -85,30 +89,32 @@ class BotDispatcher:
                 message_id=message_id,
             )
             return None
-        return self.fsm.callback_ignore(user, message_id)
+        return await self.fsm.callback_ignore(user, message_id)
 
-    def user_blocked(self, telegram_user_id: int) -> UserState | None:
+    async def user_blocked(self, telegram_user_id: int) -> UserState | None:
         user = self._configured_user(telegram_user_id)
         if user is None:
             self._log_unknown_user("user_blocked", telegram_user_id)
             return None
-        return self.fsm.user_blocked(user)
+        return await self.fsm.user_blocked(user)
 
-    def ignore_event(self, telegram_user_id: int) -> UserState | None:
+    async def ignore_event(self, telegram_user_id: int) -> UserState | None:
         user = self._configured_user(telegram_user_id)
         if user is None:
             self._log_unknown_user("ignore_event", telegram_user_id)
             return None
-        return self.fsm.ignore_event(user)
+        return await self.fsm.ignore_event(user)
 
-    def recover_missing_user_states(self) -> list[int]:
+    async def recover_missing_user_states(self) -> list[int]:
         persisted_user_ids = {state.telegram_user_id for state in self._states.list_states()}
         recovered_user_ids: list[int] = []
         for user in self.config.users_by_telegram_id.values():
             if user.telegram_user_id in persisted_user_ids:
                 continue
             try:
-                can_reach_user = self._telegram.can_reach_private_chat(user.telegram_user_id)
+                can_reach_user = await self._telegram.can_reach_private_chat(
+                    user.telegram_user_id
+                )
             except Exception as error:
                 self._logger.warning(
                     "missing_user_state_recovery_failed telegram_user_id=%s error_type=%s error=%s",
@@ -118,7 +124,7 @@ class BotDispatcher:
                 )
                 continue
             if can_reach_user:
-                self.fsm.start(user)
+                await self.fsm.start(user)
                 recovered_user_ids.append(user.telegram_user_id)
                 self._logger.info(
                     "missing_user_state_recovered telegram_user_id=%s state=%s",
@@ -133,11 +139,11 @@ class BotDispatcher:
                 )
         return recovered_user_ids
 
-    def restart(self, run_due_ticks: bool = True) -> list[int]:
+    async def restart(self, run_due_ticks: bool = True) -> list[int]:
         due_user_ids = self.due_user_ids()
         if run_due_ticks:
             for telegram_user_id in due_user_ids:
-                self.balance_tick(telegram_user_id)
+                await self.balance_tick(telegram_user_id)
         return due_user_ids
 
     def due_user_ids(self) -> list[int]:

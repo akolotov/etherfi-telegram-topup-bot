@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from pathlib import Path
 
@@ -12,7 +13,11 @@ SECP256K1_ORDER = int(
 
 
 class FilePrivateKeyProvider:
-    def read_private_key(self, file_path: str) -> str:
+    async def read_private_key(self, file_path: str) -> str:
+        return await asyncio.to_thread(_read_private_key, file_path)
+
+
+def _read_private_key(file_path: str) -> str:
         path = Path(file_path)
         private_key = path.read_text(encoding="utf-8").strip()
         validate_private_key(private_key)

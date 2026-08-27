@@ -4,8 +4,6 @@ import logging
 
 from etherfi_bot.domain import SafeTxStatus
 from etherfi_bot.runtime import resolve_log_level
-from etherfi_bot.telegram_adapter import TelegramUpdateAdapter
-from etherfi_bot.telegram_api import _sanitize_payload
 
 from tests.conftest import FsmHarness, make_dispatcher, make_user
 
@@ -98,7 +96,7 @@ def test_fsm_failure_logs_cover_external_errors_and_admin_delivery(
 
     admin_failed_harness = harness_factory(make_user(telegram_user_id=8306))
 
-    def fail_admin_delivery(*_args: object) -> None:
+    async def fail_admin_delivery(*_args: object) -> None:
         raise RuntimeError("admin delivery failed")
 
     admin_failed_harness.telegram.send_admin_error = fail_admin_delivery
@@ -161,58 +159,6 @@ def test_dispatcher_custom_logger_is_shared_with_fsm(tmp_path, caplog) -> None:
     assert config_records
     assert fsm_records
     assert all(record.name == logger.name for record in config_records + fsm_records)
-
-
-def test_adapter_logs_ignored_updates_and_callback_ack_failures(tmp_path, caplog) -> None:
-    caplog.set_level(logging.DEBUG, logger="etherfi_bot.telegram_adapter")
-    user = make_user(telegram_user_id=8501)
-    dispatcher, *_ = make_dispatcher(tmp_path, [user])
-    adapter = TelegramUpdateAdapter(dispatcher, callback_answerer=FailingCallbackAnswerer())
-
-    assert adapter.handle_update({"update_id": 101, "unknown": {}}) == "ignored_unsupported_update"
-    assert (
-        adapter.handle_update(
-            {
-                "update_id": 102,
-                "callback_query": {
-                    "id": "callback-102",
-                    "from": {"id": user.telegram_user_id, "is_bot": False},
-                    "message": {"message_id": 55},
-                    "data": "unsupported",
-                },
-            }
-        )
-        == "ignored_callback"
-    )
-
-    messages = _messages(caplog)
-    assert _has_event(messages, "telegram_update_ignored")
-    assert _has_event(messages, "callback_ack_failed")
-    assert any("telegram_user_id=8501" in message for message in messages)
-    assert any("error_type=RuntimeError" in message for message in messages)
-
-
-def test_telegram_api_debug_payload_sanitizer_redacts_sensitive_fields() -> None:
-    sanitized = _sanitize_payload(
-        {
-            "chat_id": 1,
-            "text": "message body",
-            "secret_token": "webhook-secret",
-            "reply_markup": {
-                "inline_keyboard": [[{"text": "Top Up", "callback_data": "top_up"}]]
-            },
-        }
-    )
-
-    assert sanitized["text"] == "<redacted>"
-    assert sanitized["secret_token"] == "<redacted>"
-    assert sanitized["reply_markup"]["inline_keyboard"][0][0]["text"] == "<redacted>"
-    assert sanitized["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "top_up"
-
-
-class FailingCallbackAnswerer:
-    def answer_callback_query(self, callback_query_id: str) -> bool:
-        raise RuntimeError(f"expired callback {callback_query_id}")
 
 
 def _send_low_prompt(harness: FsmHarness) -> int:

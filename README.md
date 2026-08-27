@@ -82,7 +82,12 @@ For larger user counts, see [docs/balance-check-interval.md](docs/balance-check-
 
 ## Run
 
-The default development runtime uses Telegram polling:
+External I/O runs on one asyncio lifecycle: `python-telegram-bot` handles both
+Telegram ingress modes and Telegram API calls, while `httpx.AsyncClient`
+handles Blockscout PRO and Safe Transaction Service requests. Safe signing and
+private-key file reads are moved off the event-loop thread.
+
+The default development runtime uses PTB polling:
 
 ```bash
 .venv/bin/python -m etherfi_bot.runtime
@@ -92,9 +97,6 @@ Useful environment overrides:
 
 - `CONFIG_PATH`: path to the JSON bot config, default `data/config.json`
 - `STATE_DIR`: persisted FSM state directory, default `data/user_states`
-- `POLLING_OFFSET_PATH`: persisted Telegram polling offset, default `data/polling_offset.json`
-- `POLLING_PENDING_UPDATE_PATH`: pending Telegram update recovery file, default `data/polling_pending_update.json`
-- `POLL_TIMEOUT_SECONDS`: Telegram long-poll timeout, default `25`
 - `INGRESS_MODE`: `polling` (development default) or `webhook`
 - `LOG_LEVEL`: runtime log level, default `INFO`
 - `BLOCKSCOUT_PRO_API_KEY`: Blockscout PRO API key, required for balance checks
@@ -162,11 +164,10 @@ cd ~/projects/ether.fi-bot && docker compose up -d --build
 docker compose logs -f etherfi-topup-bot
 ```
 
-The bot registers the webhook at startup with the same update classes used by
-polling, a Telegram secret header, and one concurrent delivery. A liveness
-check is available at `healthz` next to the configured webhook endpoint; the
-actual webhook accepts only `POST` at `WEBHOOK_PATH`. Direct container checks
-may also use `GET /healthz`.
+The bot uses `python-telegram-bot` for both polling and webhook ingress. In
+webhook mode PTB starts its webhook server, registers `WEBHOOK_PATH` with
+Telegram, validates the Telegram secret header, and processes one update at a
+time.
 
 ## Docker
 

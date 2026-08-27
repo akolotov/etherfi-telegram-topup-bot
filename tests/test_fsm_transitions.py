@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import threading
-import time
+import asyncio
 from datetime import timedelta
 from decimal import Decimal
 
@@ -999,7 +998,7 @@ def test_send_403_after_replacing_low_prompt_resets_to_not_started(harness_facto
     assert harness.telegram.removed_buttons[-1] == (harness.user.telegram_user_id, message_id)
 
 
-def test_concurrent_top_up_callbacks_for_one_user_create_one_safe_tx(tmp_path) -> None:
+async def test_concurrent_top_up_callbacks_for_one_user_create_one_safe_tx(tmp_path) -> None:
     user = make_user()
     states = JsonStateRepository(tmp_path / "states")
     telegram = MockTelegramGateway()
@@ -1017,33 +1016,17 @@ def test_concurrent_top_up_callbacks_for_one_user_create_one_safe_tx(tmp_path) -
         clock=clock,
         admin_telegram_user_id=9001,
     )
-    fsm.start(user)
+    await fsm.start(user)
     balances.set_balance(user.target_account, "1")
-    message_id = fsm.balance_tick(user).current_message_id
+    message_id = (await fsm.balance_tick(user)).current_message_id
     balances.set_balance(user.target_account, "2")
-    results = []
-    errors = []
-
-    def top_up() -> None:
-        try:
-            results.append(fsm.callback_top_up(user, message_id))
-        except Exception as error:  # pragma: no cover - surfaced by assertion below
-            errors.append(error)
-
-    first = threading.Thread(target=top_up)
-    second = threading.Thread(target=top_up)
-
-    first.start()
-    assert safe.entered_create.wait(timeout=2)
-    second.start()
-    time.sleep(0.05)
+    first = asyncio.create_task(fsm.callback_top_up(user, message_id))
+    await asyncio.wait_for(safe.entered_create.wait(), timeout=2)
+    second = asyncio.create_task(fsm.callback_top_up(user, message_id))
+    await asyncio.sleep(0)
     safe.release_create.set()
-    first.join(timeout=2)
-    second.join(timeout=2)
+    results = await asyncio.gather(first, second)
 
-    assert not first.is_alive()
-    assert not second.is_alive()
-    assert errors == []
     assert safe.create_attempts == 1
     assert len(delegate_safe.created_txs) == 1
     assert len(results) == 2
@@ -1053,27 +1036,29 @@ def test_concurrent_top_up_callbacks_for_one_user_create_one_safe_tx(tmp_path) -
 class BlockingSafeWalletClient:
     def __init__(self, delegate: MockSafeWalletClient) -> None:
         self.delegate = delegate
-        self.entered_create = threading.Event()
-        self.release_create = threading.Event()
+        self.entered_create = asyncio.Event()
+        self.release_create = asyncio.Event()
         self.create_attempts = 0
 
-    def create_top_up_tx(self, user, amount, safe_proposer_private_key):
+    async def create_top_up_tx(self, user, amount, safe_proposer_private_key):
         self.create_attempts += 1
         if self.create_attempts == 1:
             self.entered_create.set()
-            assert self.release_create.wait(timeout=2)
-        return self.delegate.create_top_up_tx(user, amount, safe_proposer_private_key)
+            await asyncio.wait_for(self.release_create.wait(), timeout=2)
+        return await self.delegate.create_top_up_tx(
+            user, amount, safe_proposer_private_key
+        )
 
-    def get_tx_status(self, user, safe_tx_id):
-        return self.delegate.get_tx_status(user, safe_tx_id)
+    async def get_tx_status(self, user, safe_tx_id):
+        return await self.delegate.get_tx_status(user, safe_tx_id)
 
 
 class PreflightFailingSafeWalletClient:
-    def create_top_up_tx(self, user, amount, safe_proposer_private_key):
+    async def create_top_up_tx(self, user, amount, safe_proposer_private_key):
         del user, amount, safe_proposer_private_key
         raise SafeTxCreateError("AAVE preflight balance check failed")
 
-    def get_tx_status(self, user, safe_tx_id):
+    async def get_tx_status(self, user, safe_tx_id):
         del user, safe_tx_id
         return SafeTxStatus.PENDING
 

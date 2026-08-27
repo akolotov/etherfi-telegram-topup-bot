@@ -21,7 +21,7 @@ class SafeTxCall:
 
 
 class SafeTxDataPreparer(Protocol):
-    def preflight_check(
+    async def preflight_check(
         self,
         safe_address: str,
         amount: Decimal,

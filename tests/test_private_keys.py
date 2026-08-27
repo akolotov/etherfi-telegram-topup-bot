@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from pathlib import Path
 
@@ -18,7 +19,7 @@ def test_file_private_key_provider_reads_trimmed_valid_key(tmp_path: Path) -> No
     path = tmp_path / "safe_proposer_private_key"
     path.write_text(f"\n  {key}\n", encoding="utf-8")
 
-    assert FilePrivateKeyProvider().read_private_key(str(path)) == key
+    assert asyncio.run(FilePrivateKeyProvider().read_private_key(str(path))) == key
 
 
 def test_file_private_key_provider_accepts_0x_prefixed_key(tmp_path: Path) -> None:
@@ -26,12 +27,12 @@ def test_file_private_key_provider_accepts_0x_prefixed_key(tmp_path: Path) -> No
     path = tmp_path / "safe_proposer_private_key"
     path.write_text(key, encoding="utf-8")
 
-    assert FilePrivateKeyProvider().read_private_key(str(path)) == key
+    assert asyncio.run(FilePrivateKeyProvider().read_private_key(str(path))) == key
 
 
 def test_file_private_key_provider_rejects_missing_file(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
-        FilePrivateKeyProvider().read_private_key(str(tmp_path / "missing"))
+        asyncio.run(FilePrivateKeyProvider().read_private_key(str(tmp_path / "missing")))
 
 
 def test_file_private_key_provider_rejects_empty_file(tmp_path: Path) -> None:
@@ -39,7 +40,7 @@ def test_file_private_key_provider_rejects_empty_file(tmp_path: Path) -> None:
     path.write_text(" \n\t", encoding="utf-8")
 
     with pytest.raises(ValueError, match="empty"):
-        FilePrivateKeyProvider().read_private_key(str(path))
+        asyncio.run(FilePrivateKeyProvider().read_private_key(str(path)))
 
 
 @pytest.mark.parametrize(
@@ -59,7 +60,7 @@ def test_file_private_key_provider_rejects_malformed_hex(
     path.write_text(private_key, encoding="utf-8")
 
     with pytest.raises(ValueError, match="32-byte hex"):
-        FilePrivateKeyProvider().read_private_key(str(path))
+        asyncio.run(FilePrivateKeyProvider().read_private_key(str(path)))
 
 
 def test_file_private_key_provider_rejects_zero_key(tmp_path: Path) -> None:
@@ -67,7 +68,7 @@ def test_file_private_key_provider_rejects_zero_key(tmp_path: Path) -> None:
     path.write_text("0" * 64, encoding="utf-8")
 
     with pytest.raises(ValueError, match="secp256k1 scalar range"):
-        FilePrivateKeyProvider().read_private_key(str(path))
+        asyncio.run(FilePrivateKeyProvider().read_private_key(str(path)))
 
 
 def test_file_private_key_provider_rejects_out_of_range_key(tmp_path: Path) -> None:
@@ -75,10 +76,10 @@ def test_file_private_key_provider_rejects_out_of_range_key(tmp_path: Path) -> N
     path.write_text(f"{SECP256K1_ORDER:064x}", encoding="utf-8")
 
     with pytest.raises(ValueError, match="secp256k1 scalar range"):
-        FilePrivateKeyProvider().read_private_key(str(path))
+        asyncio.run(FilePrivateKeyProvider().read_private_key(str(path)))
 
 
-def test_build_runtime_validates_configured_private_key_files(tmp_path: Path) -> None:
+async def test_build_runtime_validates_configured_private_key_files(tmp_path: Path) -> None:
     user = replace(
         make_user(telegram_user_id=1001),
         safe_proposer_key_file=str(tmp_path / "missing_private_key"),
@@ -91,15 +92,17 @@ def test_build_runtime_validates_configured_private_key_files(tmp_path: Path) ->
         telegram_api_base_url="http://127.0.0.1",
         config_path=config_path,
         state_dir=tmp_path / "states",
-        polling_offset_path=tmp_path / "polling-offset.json",
-        polling_pending_update_path=tmp_path / "polling-pending-update.json",
     )
 
-    with pytest.raises(FileNotFoundError):
-        build_runtime(settings)
+    components = build_runtime(settings)
+    try:
+        with pytest.raises(FileNotFoundError):
+            await components.startup()
+    finally:
+        await components.shutdown()
 
 
-def test_build_runtime_wires_real_safe_wallet_client(
+async def test_build_runtime_wires_real_safe_wallet_client(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -117,8 +120,6 @@ def test_build_runtime_wires_real_safe_wallet_client(
         telegram_api_base_url="http://127.0.0.1",
         config_path=config_path,
         state_dir=tmp_path / "states",
-        polling_offset_path=tmp_path / "polling-offset.json",
-        polling_pending_update_path=tmp_path / "polling-pending-update.json",
     )
     rpc_clients: list[FakeBlockscoutJsonRpcClient] = []
     token_readers: list[FakeBlockscoutErc20BalanceReader] = []
@@ -139,7 +140,8 @@ def test_build_runtime_wires_real_safe_wallet_client(
 
     assert isinstance(components.safe_wallet, SafeWalletTransactionServiceClient)
     assert [client.chain_id for client in rpc_clients] == ["10", "42161"]
-    assert token_readers[0].preloaded_token_addresses == [{user.balance_token_address}]
+    assert set(components.configured_balance_tokens) == {user.balance_token_address}
+    await components.shutdown()
 
 
 class FakeBlockscoutJsonRpcClient:
@@ -151,6 +153,9 @@ class FakeBlockscoutJsonRpcClient:
         self.kwargs = kwargs
         self.created.append(self)
 
+    async def aclose(self) -> None:
+        return None
+
 
 class FakeBlockscoutErc20BalanceReader:
     created: list["FakeBlockscoutErc20BalanceReader"] = []
@@ -160,13 +165,13 @@ class FakeBlockscoutErc20BalanceReader:
         self.preloaded_token_addresses: list[set[str]] = []
         self.created.append(self)
 
-    def get_balance_base_units(self, token_address: str, account_address: str) -> int:
+    async def get_balance_base_units(self, token_address: str, account_address: str) -> int:
         del token_address, account_address
         return 0
 
-    def get_decimals(self, token_address: str) -> int:
+    async def get_decimals(self, token_address: str) -> int:
         del token_address
         return 6
 
-    def preload_decimals(self, token_addresses) -> None:
+    async def preload_decimals(self, token_addresses) -> None:
         self.preloaded_token_addresses.append(set(token_addresses))

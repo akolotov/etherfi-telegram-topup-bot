@@ -50,7 +50,7 @@ class MockTelegramGateway:
         self.forbidden_operations_by_user: dict[int, set[str]] = {}
         self._next_message_id = 1
 
-    def send_low_balance_prompt(self, user: UserConfig, balance: Decimal) -> int:
+    async def send_low_balance_prompt(self, user: UserConfig, balance: Decimal) -> int:
         return self._send_user(
             user.telegram_user_id,
             "low_balance_prompt",
@@ -59,7 +59,7 @@ class MockTelegramGateway:
             text=f"Balance is low: {balance}. Top up?",
         )
 
-    def send_safe_tx_created(self, user: UserConfig, safe_tx_id: str) -> int:
+    async def send_safe_tx_created(self, user: UserConfig, safe_tx_id: str) -> int:
         return self._send_user(
             user.telegram_user_id,
             "safe_tx_created",
@@ -68,7 +68,7 @@ class MockTelegramGateway:
             text="Safe transaction was created. Please sign and execute it.",
         )
 
-    def send_safe_tx_pending_prompt(self, user: UserConfig, safe_tx_id: str) -> int:
+    async def send_safe_tx_pending_prompt(self, user: UserConfig, safe_tx_id: str) -> int:
         return self._send_user(
             user.telegram_user_id,
             "safe_tx_pending_prompt",
@@ -80,7 +80,7 @@ class MockTelegramGateway:
             ),
         )
 
-    def send_existing_safe_tx_notice(self, user: UserConfig, safe_tx_id: str) -> int:
+    async def send_existing_safe_tx_notice(self, user: UserConfig, safe_tx_id: str) -> int:
         return self._send_user(
             user.telegram_user_id,
             "existing_safe_tx_notice",
@@ -92,14 +92,14 @@ class MockTelegramGateway:
             ),
         )
 
-    def remove_buttons(self, telegram_user_id: int, message_id: int) -> None:
+    async def remove_buttons(self, telegram_user_id: int, message_id: int) -> None:
         self._raise_if_forbidden(telegram_user_id, "remove_buttons")
         self.removed_buttons.append((int(telegram_user_id), int(message_id)))
 
-    def send_admin_error(self, admin_telegram_user_id: int, message: str) -> None:
+    async def send_admin_error(self, admin_telegram_user_id: int, message: str) -> None:
         self.admin_errors.append((int(admin_telegram_user_id), message))
 
-    def can_reach_private_chat(self, telegram_user_id: int) -> bool:
+    async def can_reach_private_chat(self, telegram_user_id: int) -> bool:
         normalized_user_id = int(telegram_user_id)
         self.private_chat_checks.append(normalized_user_id)
         error = self.private_chat_check_errors.get(normalized_user_id)
@@ -159,7 +159,7 @@ class MockBalanceProvider:
         token_address = balance_token_address or _default_balance_token_address()
         self.balances[(target_account, token_address)] = Decimal(str(balance))
 
-    def get_balance(self, user: UserConfig) -> Decimal:
+    async def get_balance(self, user: UserConfig) -> Decimal:
         balance_key = (user.target_account, user.balance_token_address)
         self.reads.append(balance_key)
         if user.target_account in self.fail_accounts or balance_key in self.fail_balances:
@@ -186,7 +186,7 @@ class MockSafeWalletClient:
         self.status_checks: list[str] = []
         self._next_tx_number = 1
 
-    def create_top_up_tx(
+    async def create_top_up_tx(
         self,
         user: UserConfig,
         amount: Decimal,
@@ -209,7 +209,7 @@ class MockSafeWalletClient:
         self.statuses[safe_tx_id] = SafeTxStatus.PENDING
         return safe_tx_id
 
-    def get_tx_status(self, user: UserConfig, safe_tx_id: str) -> SafeTxStatus:
+    async def get_tx_status(self, user: UserConfig, safe_tx_id: str) -> SafeTxStatus:
         self.status_checks.append(safe_tx_id)
         if safe_tx_id in self.fail_status_for_txs:
             raise SafeTxStatusReadError("Could not read Safe tx status")
@@ -221,7 +221,7 @@ class MockPrivateKeyProvider:
         self.private_keys = private_keys or {}
         self.requests: list[str] = []
 
-    def read_private_key(self, file_path: str) -> str:
+    async def read_private_key(self, file_path: str) -> str:
         self.requests.append(file_path)
         return self.private_keys[file_path]
 

@@ -325,7 +325,7 @@ def test_json_state_repository_round_trips_datetime_and_decimal(tmp_path) -> Non
     assert loaded.low_balance_drop_admin_notified is True
 
 
-def test_restart_respects_persisted_next_tick_and_runs_missing_next_tick(tmp_path) -> None:
+async def test_restart_respects_persisted_next_tick_and_runs_missing_next_tick(tmp_path) -> None:
     future_user = make_user(telegram_user_id=4001)
     missing_tick_user = make_user(telegram_user_id=4002)
     due_user = make_user(telegram_user_id=4003)
@@ -370,7 +370,7 @@ def test_restart_respects_persisted_next_tick_and_runs_missing_next_tick(tmp_pat
         clock=MockClock(now),
     )
 
-    due_user_ids = dispatcher.restart(run_due_ticks=True)
+    due_user_ids = await dispatcher.restart(run_due_ticks=True)
 
     assert due_user_ids == [
         missing_tick_user.telegram_user_id,
@@ -395,7 +395,7 @@ def test_restart_runs_due_ticks_from_persisted_state(tmp_path) -> None:
     assert telegram.messages[-1].telegram_user_id == user.telegram_user_id
 
 
-def test_new_dispatcher_restores_persisted_active_states(tmp_path) -> None:
+async def test_new_dispatcher_restores_persisted_active_states(tmp_path) -> None:
     user_s2 = make_user(telegram_user_id=2001)
     user_s3 = make_user(telegram_user_id=2002, limit=2)
     user_s4 = make_user(telegram_user_id=2003)
@@ -421,24 +421,24 @@ def test_new_dispatcher_restores_persisted_active_states(tmp_path) -> None:
         clock=clock,
     )
     for user in users:
-        dispatcher.start(user.telegram_user_id)
+        await dispatcher.start(user.telegram_user_id)
         balances.set_balance(user.target_account, "1")
 
-    dispatcher.balance_tick(user_s2.telegram_user_id)
-    dispatcher.balance_tick(user_s3.telegram_user_id)
+    await dispatcher.balance_tick(user_s2.telegram_user_id)
+    await dispatcher.balance_tick(user_s3.telegram_user_id)
     clock.advance(user_s3.balance_check_interval_seconds)
-    dispatcher.balance_tick(user_s3.telegram_user_id)
-    state_s4_prompt = dispatcher.balance_tick(user_s4.telegram_user_id)
-    dispatcher.callback_top_up(user_s4.telegram_user_id, state_s4_prompt.current_message_id)
-    state_s4_after_reminder_prompt = dispatcher.balance_tick(
+    await dispatcher.balance_tick(user_s3.telegram_user_id)
+    state_s4_prompt = await dispatcher.balance_tick(user_s4.telegram_user_id)
+    await dispatcher.callback_top_up(user_s4.telegram_user_id, state_s4_prompt.current_message_id)
+    state_s4_after_reminder_prompt = await dispatcher.balance_tick(
         user_s4_after_reminder.telegram_user_id
     )
-    dispatcher.callback_top_up(
+    await dispatcher.callback_top_up(
         user_s4_after_reminder.telegram_user_id,
         state_s4_after_reminder_prompt.current_message_id,
     )
     clock.advance(user_s4_after_reminder.low_balance_notification_cooldown_seconds)
-    dispatcher.balance_tick(user_s4_after_reminder.telegram_user_id)
+    await dispatcher.balance_tick(user_s4_after_reminder.telegram_user_id)
 
     expected_states = {
         user.telegram_user_id: states.load(user.telegram_user_id).to_dict()
@@ -470,7 +470,7 @@ def test_new_dispatcher_restores_persisted_active_states(tmp_path) -> None:
         assert reloaded_states.load(telegram_user_id).to_dict() == expected_state
 
 
-def test_new_dispatcher_restart_processes_multiple_due_users(tmp_path) -> None:
+async def test_new_dispatcher_restart_processes_multiple_due_users(tmp_path) -> None:
     user1 = make_user(telegram_user_id=3001)
     user2 = make_user(telegram_user_id=3002)
     users = [user1, user2]
@@ -489,8 +489,8 @@ def test_new_dispatcher_restart_processes_multiple_due_users(tmp_path) -> None:
         ),
         clock=clock,
     )
-    initial_dispatcher.start(user1.telegram_user_id)
-    initial_dispatcher.start(user2.telegram_user_id)
+    await initial_dispatcher.start(user1.telegram_user_id)
+    await initial_dispatcher.start(user2.telegram_user_id)
     clock.advance(user1.balance_check_interval_seconds)
 
     reloaded_states = JsonStateRepository(state_dir)
@@ -510,7 +510,7 @@ def test_new_dispatcher_restart_processes_multiple_due_users(tmp_path) -> None:
         clock=clock,
     )
 
-    due_user_ids = reloaded_dispatcher.restart(run_due_ticks=True)
+    due_user_ids = await reloaded_dispatcher.restart(run_due_ticks=True)
 
     assert due_user_ids == [user1.telegram_user_id, user2.telegram_user_id]
     assert reloaded_states.load(user1.telegram_user_id).state is BotState.LOW_PROMPT

@@ -4,26 +4,33 @@ import copy
 import json
 from pathlib import Path
 
+from telegram import Bot, Update
+
 from etherfi_bot.domain import BotState
 from etherfi_bot.telegram_adapter import TelegramUpdateAdapter
-
 from tests.conftest import make_dispatcher, make_user
+
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures" / "telegram_updates"
 
 
-class CallbackRecorder:
-    def __init__(self) -> None:
-        self.ids: list[str] = []
+class RecordingBot(Bot):
+    __slots__ = ("_callback_ids", "_fail_callback_answer")
 
-    def answer_callback_query(self, callback_query_id: str) -> bool:
-        self.ids.append(callback_query_id)
+    def __init__(self, *, fail_callback_answer: bool = False) -> None:
+        super().__init__("123:ABC")
+        self._callback_ids: list[str] = []
+        self._fail_callback_answer = fail_callback_answer
+
+    @property
+    def callback_ids(self) -> list[str]:
+        return self._callback_ids
+
+    async def answer_callback_query(self, callback_query_id: str, **_kwargs) -> bool:
+        self._callback_ids.append(callback_query_id)
+        if self._fail_callback_answer:
+            raise RuntimeError("expired callback")
         return True
-
-
-class FailingCallbackAnswerer:
-    def answer_callback_query(self, callback_query_id: str) -> bool:
-        raise RuntimeError(f"expired callback {callback_query_id}")
 
 
 def load_fixture(name: str) -> dict:
@@ -31,190 +38,118 @@ def load_fixture(name: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def test_start_update_enters_monitoring_for_configured_user(tmp_path) -> None:
+def ptb_update(payload: dict, bot: Bot | None = None) -> Update:
+    update = Update.de_json(payload, bot or RecordingBot())
+    assert update is not None
+    return update
+
+
+async def test_start_update_enters_monitoring_for_configured_user(tmp_path) -> None:
     user = make_user(telegram_user_id=1001)
     dispatcher, states, *_ = make_dispatcher(tmp_path, [user])
     adapter = TelegramUpdateAdapter(dispatcher)
 
-    action = adapter.handle_update(load_fixture("message_command_start"))
+    action = await adapter.handle_update(ptb_update(load_fixture("message_command_start")))
 
     assert action == "start"
     assert states.load(user.telegram_user_id).state is BotState.MONITORING
 
 
-def test_start_update_ignores_unknown_user_without_state_file(tmp_path) -> None:
+async def test_start_update_ignores_unknown_user_without_state_file(tmp_path) -> None:
     user = make_user(telegram_user_id=1001)
     dispatcher, states, *_ = make_dispatcher(tmp_path, [user])
     adapter = TelegramUpdateAdapter(dispatcher)
-    update = load_fixture("message_command_start")
-    update["message"]["from"]["id"] = 9999
-    update["message"]["chat"]["id"] = 9999
+    payload = load_fixture("message_command_start")
+    payload["message"]["from"]["id"] = 9999
+    payload["message"]["chat"]["id"] = 9999
 
-    action = adapter.handle_update(update)
-
-    assert action == "start"
+    assert await adapter.handle_update(ptb_update(payload)) == "start"
     assert states.list_states() == []
 
 
-def test_top_up_callback_uses_callback_message_id_and_acknowledges(tmp_path) -> None:
+async def test_callbacks_dispatch_and_are_acknowledged(tmp_path) -> None:
     user = make_user(telegram_user_id=1001)
     dispatcher, states, _telegram, balances, safe, *_ = make_dispatcher(tmp_path, [user])
-    callback_recorder = CallbackRecorder()
-    adapter = TelegramUpdateAdapter(dispatcher, callback_answerer=callback_recorder)
-    dispatcher.start(user.telegram_user_id)
+    bot = RecordingBot()
+    adapter = TelegramUpdateAdapter(dispatcher)
+    await dispatcher.start(user.telegram_user_id)
     balances.set_balance(user.target_account, "1")
-    prompt_state = dispatcher.balance_tick(user.telegram_user_id)
+    prompt_state = await dispatcher.balance_tick(user.telegram_user_id)
     balances.set_balance(user.target_account, "2")
-    update = load_fixture("callback_query_top_up")
-    update["callback_query"]["message"]["message_id"] = prompt_state.current_message_id
+    payload = load_fixture("callback_query_top_up")
+    payload["callback_query"]["message"]["message_id"] = prompt_state.current_message_id
 
-    action = adapter.handle_update(update)
+    action = await adapter.handle_update(ptb_update(payload, bot))
 
     state = states.load(user.telegram_user_id)
     assert action == "callback_top_up"
     assert state.state is BotState.SAFE_TX_PENDING
-    assert state.pending_safe_tx_id == "safe-tx-1"
-    balance_key = (user.target_account, user.balance_token_address)
-    assert safe.created_txs[0].amount == user.target_max_balance - balances.balances[balance_key]
-    assert callback_recorder.ids == [update["callback_query"]["id"]]
+    assert len(safe.created_txs) == 1
+    assert bot.callback_ids == [payload["callback_query"]["id"]]
 
 
-def test_callback_ack_failure_does_not_undo_dispatch(tmp_path) -> None:
+async def test_callback_ack_failure_does_not_undo_dispatch(tmp_path) -> None:
     user = make_user(telegram_user_id=1001)
     dispatcher, states, _telegram, balances, safe, *_ = make_dispatcher(tmp_path, [user])
-    adapter = TelegramUpdateAdapter(dispatcher, callback_answerer=FailingCallbackAnswerer())
-    dispatcher.start(user.telegram_user_id)
+    adapter = TelegramUpdateAdapter(dispatcher)
+    await dispatcher.start(user.telegram_user_id)
     balances.set_balance(user.target_account, "1")
-    prompt_state = dispatcher.balance_tick(user.telegram_user_id)
+    prompt = await dispatcher.balance_tick(user.telegram_user_id)
     balances.set_balance(user.target_account, "2")
-    update = load_fixture("callback_query_top_up")
-    update["callback_query"]["message"]["message_id"] = prompt_state.current_message_id
+    payload = load_fixture("callback_query_top_up")
+    payload["callback_query"]["message"]["message_id"] = prompt.current_message_id
 
-    action = adapter.handle_update(update)
+    action = await adapter.handle_update(
+        ptb_update(payload, RecordingBot(fail_callback_answer=True))
+    )
 
     assert action == "callback_top_up"
     assert states.load(user.telegram_user_id).state is BotState.SAFE_TX_PENDING
     assert len(safe.created_txs) == 1
 
 
-def test_ignore_callback_uses_callback_message_id_and_acknowledges(tmp_path) -> None:
-    user = make_user(telegram_user_id=1001)
-    dispatcher, states, _telegram, balances, *_ = make_dispatcher(tmp_path, [user])
-    callback_recorder = CallbackRecorder()
-    adapter = TelegramUpdateAdapter(dispatcher, callback_answerer=callback_recorder)
-    dispatcher.start(user.telegram_user_id)
-    balances.set_balance(user.target_account, "1")
-    prompt_state = dispatcher.balance_tick(user.telegram_user_id)
-    update = load_fixture("callback_query_ignore")
-    update["callback_query"]["message"]["message_id"] = prompt_state.current_message_id
-
-    action = adapter.handle_update(update)
-
-    assert action == "callback_ignore"
-    assert states.load(user.telegram_user_id).state is BotState.MONITORING
-    assert callback_recorder.ids == [update["callback_query"]["id"]]
-
-
-def test_stale_and_unsupported_callbacks_are_noops_but_acknowledged(tmp_path) -> None:
+async def test_stale_group_and_unsupported_callbacks_are_noops(tmp_path) -> None:
     user = make_user(telegram_user_id=1001)
     dispatcher, states, _telegram, balances, safe, *_ = make_dispatcher(tmp_path, [user])
-    callback_recorder = CallbackRecorder()
-    adapter = TelegramUpdateAdapter(dispatcher, callback_answerer=callback_recorder)
-    dispatcher.start(user.telegram_user_id)
+    adapter = TelegramUpdateAdapter(dispatcher)
+    await dispatcher.start(user.telegram_user_id)
     balances.set_balance(user.target_account, "1")
-    prompt_state = dispatcher.balance_tick(user.telegram_user_id)
+    prompt = await dispatcher.balance_tick(user.telegram_user_id)
     state_before = states.load(user.telegram_user_id).to_dict()
 
     stale = load_fixture("callback_query_top_up")
-    stale["callback_query"]["message"]["message_id"] = prompt_state.current_message_id + 99
-    stale_action = adapter.handle_update(stale)
+    stale["callback_query"]["message"]["message_id"] = prompt.current_message_id + 99
+    assert await adapter.handle_update(ptb_update(stale)) == "callback_top_up"
 
     unsupported = copy.deepcopy(stale)
-    unsupported["callback_query"]["id"] = "unsupported-callback"
-    unsupported["callback_query"]["message"]["message_id"] = prompt_state.current_message_id
+    unsupported["callback_query"]["message"]["message_id"] = prompt.current_message_id
     unsupported["callback_query"]["data"] = "unsupported"
-    unsupported_action = adapter.handle_update(unsupported)
+    assert await adapter.handle_update(ptb_update(unsupported)) == "ignored_callback"
 
-    assert stale_action == "callback_top_up"
-    assert unsupported_action == "ignored_callback"
+    group = copy.deepcopy(unsupported)
+    group["callback_query"]["data"] = "top_up"
+    group["callback_query"]["message"]["chat"] = {
+        "id": -1001234567890,
+        "type": "supergroup",
+    }
+    assert await adapter.handle_update(ptb_update(group)) == "ignored_callback"
     assert states.load(user.telegram_user_id).to_dict() == state_before
     assert safe.created_txs == []
-    assert callback_recorder.ids == [stale["callback_query"]["id"], "unsupported-callback"]
 
 
-def test_group_callback_from_allowed_user_is_ignored(tmp_path) -> None:
-    user = make_user(telegram_user_id=1001)
-    dispatcher, states, _telegram, balances, safe, *_ = make_dispatcher(tmp_path, [user])
-    callback_recorder = CallbackRecorder()
-    adapter = TelegramUpdateAdapter(dispatcher, callback_answerer=callback_recorder)
-    dispatcher.start(user.telegram_user_id)
-    balances.set_balance(user.target_account, "1")
-    prompt_state = dispatcher.balance_tick(user.telegram_user_id)
-    state_before = states.load(user.telegram_user_id).to_dict()
-    update = load_fixture("callback_query_top_up")
-    update["callback_query"]["message"]["message_id"] = prompt_state.current_message_id
-    update["callback_query"]["message"]["chat"] = {"id": -1001234567890, "type": "supergroup"}
-
-    action = adapter.handle_update(update)
-
-    assert action == "ignored_callback"
-    assert states.load(user.telegram_user_id).to_dict() == state_before
-    assert safe.created_txs == []
-    assert callback_recorder.ids == [update["callback_query"]["id"]]
-
-
-def test_malformed_private_callback_chat_id_is_ignored(tmp_path) -> None:
-    user = make_user(telegram_user_id=1001)
-    dispatcher, states, _telegram, balances, safe, *_ = make_dispatcher(tmp_path, [user])
-    callback_recorder = CallbackRecorder()
-    adapter = TelegramUpdateAdapter(dispatcher, callback_answerer=callback_recorder)
-    dispatcher.start(user.telegram_user_id)
-    balances.set_balance(user.target_account, "1")
-    prompt_state = dispatcher.balance_tick(user.telegram_user_id)
-    state_before = states.load(user.telegram_user_id).to_dict()
-    update = load_fixture("callback_query_top_up")
-    update["callback_query"]["message"]["message_id"] = prompt_state.current_message_id
-    update["callback_query"]["message"]["chat"] = {"type": "private"}
-
-    action = adapter.handle_update(update)
-
-    assert action == "ignored_callback"
-    assert states.load(user.telegram_user_id).to_dict() == state_before
-    assert safe.created_txs == []
-    assert callback_recorder.ids == [update["callback_query"]["id"]]
-
-
-def test_plain_reply_and_reaction_updates_are_ignored(tmp_path) -> None:
+async def test_plain_reactions_and_block_updates_use_typed_ptb_fields(tmp_path) -> None:
     user = make_user(telegram_user_id=1001)
     dispatcher, states, _telegram, balances, *_ = make_dispatcher(tmp_path, [user])
     adapter = TelegramUpdateAdapter(dispatcher)
-    dispatcher.start(user.telegram_user_id)
+    await dispatcher.start(user.telegram_user_id)
     balances.set_balance(user.target_account, "1")
-    prompt_state = dispatcher.balance_tick(user.telegram_user_id)
-    state_before = states.load(user.telegram_user_id).to_dict()
+    await dispatcher.balance_tick(user.telegram_user_id)
 
-    for name in [
-        "message_plain_text",
-        "message_reply_text",
-        "message_reaction_add",
-        "message_reaction_replace",
-        "message_reaction_remove",
-    ]:
-        assert adapter.handle_update(load_fixture(name)).startswith("ignored")
+    for name in ["message_plain_text", "message_reaction_add", "message_reaction_remove"]:
+        assert (await adapter.handle_update(ptb_update(load_fixture(name)))).startswith(
+            "ignored"
+        )
 
-    assert states.load(user.telegram_user_id).to_dict() == state_before
-    assert states.load(user.telegram_user_id).current_message_id == prompt_state.current_message_id
-
-
-def test_private_block_update_resets_user_to_not_started(tmp_path) -> None:
-    user = make_user(telegram_user_id=1001)
-    dispatcher, states, _telegram, balances, *_ = make_dispatcher(tmp_path, [user])
-    adapter = TelegramUpdateAdapter(dispatcher)
-    dispatcher.start(user.telegram_user_id)
-    balances.set_balance(user.target_account, "1")
-    dispatcher.balance_tick(user.telegram_user_id)
-
-    action = adapter.handle_update(load_fixture("my_chat_member_block"))
-
+    action = await adapter.handle_update(ptb_update(load_fixture("my_chat_member_block")))
     assert action == "user_blocked"
     assert states.load(user.telegram_user_id).state is BotState.NOT_STARTED

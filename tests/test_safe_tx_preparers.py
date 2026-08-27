@@ -17,11 +17,11 @@ from etherfi_bot.safe_tx_preparers import (
 )
 
 
-def test_aave_preflight_passes_when_safe_has_enough_ausdc() -> None:
+async def test_aave_preflight_passes_when_safe_has_enough_ausdc() -> None:
     balances = RecordingBalances(balance_base_units=2_000_000)
     preparer = AaveV3NativeUsdcWithdrawPreparer(balances)
 
-    preparer.preflight_check(
+    await preparer.preflight_check(
         "0x0000000000000000000000000000000000000001",
         Decimal("1.5"),
         "0x0000000000000000000000000000000000000002",
@@ -35,23 +35,23 @@ def test_aave_preflight_passes_when_safe_has_enough_ausdc() -> None:
     ]
 
 
-def test_aave_preflight_fails_when_safe_ausdc_balance_is_insufficient() -> None:
+async def test_aave_preflight_fails_when_safe_ausdc_balance_is_insufficient() -> None:
     balances = RecordingBalances(balance_base_units=999_999)
     preparer = AaveV3NativeUsdcWithdrawPreparer(balances)
 
     with pytest.raises(SafeTxCreateError, match="required 1000000"):
-        preparer.preflight_check(
+        await preparer.preflight_check(
             "0x0000000000000000000000000000000000000001",
             Decimal("1"),
             "0x0000000000000000000000000000000000000002",
         )
 
 
-def test_aave_preflight_wraps_blockscout_errors_as_safe_tx_create_failed() -> None:
+async def test_aave_preflight_wraps_blockscout_errors_as_safe_tx_create_failed() -> None:
     preparer = AaveV3NativeUsdcWithdrawPreparer(FailingBalances())
 
     with pytest.raises(SafeTxCreateError, match="AAVE preflight balance check failed"):
-        preparer.preflight_check(
+        await preparer.preflight_check(
             "0x0000000000000000000000000000000000000001",
             Decimal("1"),
             "0x0000000000000000000000000000000000000002",
@@ -95,7 +95,9 @@ class RecordingBalances:
         self.balance_base_units = balance_base_units
         self.calls: list[dict[str, str]] = []
 
-    def get_balance_base_units(self, token_address: str, account_address: str) -> int:
+    async def get_balance_base_units(
+        self, token_address: str, account_address: str
+    ) -> int:
         self.calls.append(
             {
                 "token_address": token_address,
@@ -106,6 +108,8 @@ class RecordingBalances:
 
 
 class FailingBalances:
-    def get_balance_base_units(self, token_address: str, account_address: str) -> int:
+    async def get_balance_base_units(
+        self, token_address: str, account_address: str
+    ) -> int:
         del token_address, account_address
         raise BlockscoutJsonRpcError("unavailable")

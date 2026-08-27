@@ -14,8 +14,6 @@ services:
       INGRESS_MODE: webhook
       CONFIG_PATH: /config/config.json
       STATE_DIR: /state/user_states
-      POLLING_OFFSET_PATH: /state/polling_offset.json
-      POLLING_PENDING_UPDATE_PATH: /state/polling_pending_update.json
       WEBHOOK_LISTEN_HOST: 0.0.0.0
       WEBHOOK_LISTEN_PORT: "8080"
     volumes:

@@ -19,9 +19,6 @@ class RuntimeSettings:
     safe_tx_service_base_url: str = "https://api.safe.global/tx-service/arb1"
     config_path: Path = Path("data/config.json")
     state_dir: Path = Path("data/user_states")
-    polling_offset_path: Path = Path("data/polling_offset.json")
-    polling_pending_update_path: Path = Path("data/polling_pending_update.json")
-    poll_timeout_seconds: int = 25
     webhook_public_base_url: str | None = None
     webhook_path: str = "/telegram/webhook"
     webhook_secret_token: str | None = None
@@ -111,16 +108,6 @@ class RuntimeSettings:
             ),
             config_path=Path(values.get("CONFIG_PATH", "data/config.json")),
             state_dir=Path(values.get("STATE_DIR", "data/user_states")),
-            polling_offset_path=Path(
-                values.get("POLLING_OFFSET_PATH", "data/polling_offset.json")
-            ),
-            polling_pending_update_path=Path(
-                values.get(
-                    "POLLING_PENDING_UPDATE_PATH",
-                    "data/polling_pending_update.json",
-                )
-            ),
-            poll_timeout_seconds=int(values.get("POLL_TIMEOUT_SECONDS", "25")),
             webhook_public_base_url=webhook_public_base_url or None,
             webhook_path=webhook_path,
             webhook_secret_token=webhook_secret_token or None,
