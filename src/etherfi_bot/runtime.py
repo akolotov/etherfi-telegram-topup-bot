@@ -76,8 +76,9 @@ class RuntimeComponents:
         self, update: object, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         self.logger.error(
-            "telegram_update_processing_failed update=%r error_type=%s error=%s",
-            update,
+            "telegram_update_processing_failed telegram_update_id=%s "
+            "error_type=%s error=%s",
+            getattr(update, "update_id", None),
             type(context.error).__name__,
             context.error,
             exc_info=context.error,
@@ -111,6 +112,9 @@ class RuntimeComponents:
             self._scheduler_task = None
 
     async def shutdown(self, _application: Application | None = None) -> None:
+        # post_stop is skipped when PTB fails before Application.start(), but
+        # post_shutdown still runs. Keep scheduler cleanup safe in both paths.
+        await self.stop()
         await asyncio.gather(
             self.optimism_rpc.aclose(),
             self.arbitrum_rpc.aclose(),
@@ -251,9 +255,9 @@ def main(argv: list[str] | None = None) -> None:
         force=True,
     )
     # httpx includes complete request URLs in INFO messages. Telegram embeds the
-    # bot token in those URLs, so transport-level logs must never inherit INFO.
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    # bot token in those URLs, and PTB includes credentials in DEBUG
+    # messages, so these loggers must not inherit the configured root level.
+    _configure_sensitive_dependency_logging()
     logger = logging.getLogger(__name__)
     if invalid_log_level is not None:
         logger.warning(
@@ -296,6 +300,12 @@ def resolve_log_level(raw_log_level: str) -> tuple[int, str, str | None]:
     if isinstance(level, int):
         return level, normalized, None
     return logging.INFO, "INFO", raw_log_level
+
+
+def _configure_sensitive_dependency_logging() -> None:
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("telegram").setLevel(logging.INFO)
 
 
 if __name__ == "__main__":

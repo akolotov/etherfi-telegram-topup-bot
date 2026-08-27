@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import logging
 
+from telegram.ext import ApplicationBuilder
+
 from etherfi_bot.domain import SafeTxStatus
-from etherfi_bot.runtime import resolve_log_level
+from etherfi_bot.runtime import (
+    _configure_sensitive_dependency_logging,
+    resolve_log_level,
+)
 
 from tests.conftest import FsmHarness, make_dispatcher, make_user
 
@@ -144,6 +149,24 @@ def test_runtime_log_level_resolution() -> None:
     assert resolve_log_level("debug") == (logging.DEBUG, "DEBUG", None)
     assert resolve_log_level("WARNING") == (logging.WARNING, "WARNING", None)
     assert resolve_log_level("verbose") == (logging.INFO, "INFO", "verbose")
+
+
+def test_sensitive_ptb_credentials_do_not_inherit_root_debug(caplog) -> None:
+    telegram_logger = logging.getLogger("telegram")
+    bot_logger = logging.getLogger("telegram.ext.ExtBot")
+    original_level = telegram_logger.level
+    caplog.set_level(logging.DEBUG)
+    try:
+        telegram_logger.setLevel(logging.NOTSET)
+        _configure_sensitive_dependency_logging()
+        ApplicationBuilder().token("123456:fake-bot-secret").build()
+        bot_logger.debug("setWebhook secret_token=%s", "fake-webhook-secret")
+    finally:
+        telegram_logger.setLevel(original_level)
+
+    messages = _messages(caplog)
+    assert all("fake-bot-secret" not in message for message in messages)
+    assert all("fake-webhook-secret" not in message for message in messages)
 
 
 def test_dispatcher_custom_logger_is_shared_with_fsm(tmp_path, caplog) -> None:
