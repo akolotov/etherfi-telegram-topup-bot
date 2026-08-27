@@ -32,6 +32,10 @@ class SafeTxCreateError(RuntimeError):
     """The Safe transaction could not be created or registered."""
 
 
+class InsufficientSafeBalanceError(SafeTxCreateError):
+    """The Safe does not have enough balance to fund the requested top-up."""
+
+
 class SafeTxStatusReadError(RuntimeError):
     """The Safe transaction status could not be read."""
 
@@ -98,6 +102,8 @@ class UserConfig:
             raise ValueError("balance_threshold must be >= 0")
         if self.target_max_balance < 0:
             raise ValueError("target_max_balance must be >= 0")
+        if self.target_max_balance < self.balance_threshold:
+            raise ValueError("target_max_balance must be >= balance_threshold")
 
 
 @dataclass(frozen=True)

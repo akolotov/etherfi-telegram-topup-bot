@@ -8,6 +8,7 @@ from decimal import Decimal
 from etherfi_bot.domain import (
     BalanceReadError,
     BotState,
+    InsufficientSafeBalanceError,
     SafeTxCreateError,
     SafeTxStatusReadError,
     SafeTxStatus,
@@ -601,6 +602,7 @@ class FsmService:
                 target_max_balance=user.target_max_balance,
                 amount=amount,
             )
+            await self._telegram.send_top_up_not_needed(user)
             state.state = BotState.MONITORING
             return
 
@@ -629,6 +631,8 @@ class FsmService:
             await self._notify_admin(
                 f"Safe tx creation failed for safe {user.safe_account}: {error}"
             )
+            if isinstance(error, InsufficientSafeBalanceError):
+                await self._telegram.send_insufficient_safe_balance(user)
             state.state = BotState.MONITORING
             return
 

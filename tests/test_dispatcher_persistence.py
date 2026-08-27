@@ -52,6 +52,17 @@ def test_json_config_repository_round_trips_balance_token_address(tmp_path) -> N
     assert loaded_user.balance_token_address == user.balance_token_address
 
 
+def test_json_config_repository_rejects_target_max_below_threshold(tmp_path) -> None:
+    user = make_user(telegram_user_id=1001, threshold="10", max_balance="5")
+    config_path = write_config(tmp_path / "config.json", [user])
+
+    with pytest.raises(
+        ValueError,
+        match="target_max_balance must be >= balance_threshold",
+    ):
+        JsonConfigRepository(config_path).load()
+
+
 @pytest.mark.parametrize("invalid_value", [None, "", "   ", 123])
 def test_json_config_repository_rejects_invalid_balance_token_address(
     tmp_path,
