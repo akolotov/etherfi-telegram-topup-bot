@@ -1,6 +1,6 @@
 services:
   etherfi-topup-bot:
-    image: akolotov/etherfi-telegram-topup-bot:latest
+    image: ghcr.io/akolotov/etherfi-telegram-topup-bot:latest
     restart: unless-stopped
     init: true
     logging:
