@@ -102,6 +102,8 @@ class UserConfig:
             raise ValueError("balance_threshold must be >= 0")
         if self.target_max_balance < 0:
             raise ValueError("target_max_balance must be >= 0")
+        if self.target_max_balance < self.balance_threshold:
+            raise ValueError("target_max_balance must be >= balance_threshold")
 
 
 @dataclass(frozen=True)

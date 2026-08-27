@@ -431,7 +431,7 @@ def test_top_up_fresh_balance_read_failed_notifies_admin(harness_factory) -> Non
     )
 
 
-def test_top_up_fresh_ok_or_non_positive_amount_skips_safe_tx(harness_factory) -> None:
+def test_top_up_fresh_ok_skips_safe_tx(harness_factory) -> None:
     ok_harness = harness_factory()
     ok_message_id = make_low_prompt(ok_harness, "1")
     ok_harness.balances.set_balance(ok_harness.user.target_account, "10")
@@ -445,21 +445,6 @@ def test_top_up_fresh_ok_or_non_positive_amount_skips_safe_tx(harness_factory) -
     assert len(ok_harness.safe.created_txs) == 0
     assert ok_harness.telegram.admin_errors == []
     assert ok_harness.telegram.messages[-1].kind == "top_up_not_needed"
-
-    weird_user = make_user(telegram_user_id=3003, threshold="10", max_balance="5")
-    weird_harness = harness_factory(weird_user)
-    weird_message_id = make_low_prompt(weird_harness, "1")
-    weird_harness.balances.set_balance(weird_user.target_account, "6")
-
-    weird_state = weird_harness.fsm.callback_top_up(weird_user, weird_message_id)
-
-    assert weird_state.state is BotState.MONITORING
-    assert weird_state.notification_count == 0
-    assert weird_state.low_cooldown_until is None
-    assert weird_state.current_message_id is None
-    assert len(weird_harness.safe.created_txs) == 0
-    assert weird_harness.telegram.admin_errors == []
-    assert weird_harness.telegram.messages[-1].kind == "top_up_not_needed"
 
 
 def test_top_up_safe_create_failed_notifies_admin(harness_factory) -> None:
