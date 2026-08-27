@@ -48,7 +48,7 @@ def test_fake_telegram_api_supports_polling_and_webhook_smoke(tmp_path: Path) ->
         set_webhook = _post_json(
             base_url,
             "/bot123:ABC/setWebhook",
-            {"url": "https://example.test/telegram/webhook"},
+            {"url": "https://gateway.example.test/webhook"},
         )
         assert set_webhook["ok"] is True
 
@@ -67,7 +67,7 @@ def test_fake_telegram_api_supports_polling_and_webhook_smoke(tmp_path: Path) ->
         assert answer["result"] is True
 
         state = _get_json(base_url, "/__admin/state")
-        assert state["webhook"] == {"url": "https://example.test/telegram/webhook"}
+        assert state["webhook"] == {"url": "https://gateway.example.test/webhook"}
         assert [request["method"] for request in state["requests"]] == [
             "getMe",
             "getChat",

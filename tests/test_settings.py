@@ -182,8 +182,8 @@ def test_runtime_settings_reads_tailscale_webhook_configuration(tmp_path) -> Non
                 "BLOCKSCOUT_PRO_API_KEY=proapi_file_key",
                 "SAFE_TRANSACTION_SERVICE_API_KEY=safe_file_key",
                 "INGRESS_MODE=webhook",
-                "WEBHOOK_PUBLIC_BASE_URL=https://wabelfish-funnel.taild8e94b.ts.net",
-                "WEBHOOK_PATH=/hooks/etherfi-topup-bot/telegram/webhook",
+                "WEBHOOK_PUBLIC_BASE_URL=https://gateway.example.test",
+                "WEBHOOK_PATH=/hooks/example-bot/inbound/webhook",
                 "WEBHOOK_SECRET_TOKEN=valid_telegram-secret_123",
                 "WEBHOOK_LISTEN_PORT=8080",
             ]
@@ -195,8 +195,7 @@ def test_runtime_settings_reads_tailscale_webhook_configuration(tmp_path) -> Non
 
     assert settings.ingress_mode == "webhook"
     assert settings.webhook_url == (
-        "https://wabelfish-funnel.taild8e94b.ts.net/"
-        "hooks/etherfi-topup-bot/telegram/webhook"
+        "https://gateway.example.test/hooks/example-bot/inbound/webhook"
     )
     assert settings.webhook_secret_token == "valid_telegram-secret_123"
     assert settings.webhook_listen_port == 8080
@@ -206,7 +205,7 @@ def test_runtime_settings_reads_tailscale_webhook_configuration(tmp_path) -> Non
     ("key", "value", "message"),
     [
         ("WEBHOOK_PUBLIC_BASE_URL", "http://example.test", "WEBHOOK_PUBLIC_BASE_URL"),
-        ("WEBHOOK_PATH", "telegram/webhook", "WEBHOOK_PATH"),
+        ("WEBHOOK_PATH", "relative/webhook", "WEBHOOK_PATH"),
         ("WEBHOOK_SECRET_TOKEN", "replace-with-random-secret", "WEBHOOK_SECRET_TOKEN"),
         ("WEBHOOK_SECRET_TOKEN", "contains a space", "WEBHOOK_SECRET_TOKEN"),
         ("WEBHOOK_LISTEN_PORT", "70000", "WEBHOOK_LISTEN_PORT"),
@@ -223,8 +222,8 @@ def test_runtime_settings_rejects_invalid_webhook_configuration(
         "BLOCKSCOUT_PRO_API_KEY": "proapi_file_key",
         "SAFE_TRANSACTION_SERVICE_API_KEY": "safe_file_key",
         "INGRESS_MODE": "webhook",
-        "WEBHOOK_PUBLIC_BASE_URL": "https://wabelfish-funnel.taild8e94b.ts.net",
-        "WEBHOOK_PATH": "/hooks/etherfi-topup-bot/telegram/webhook",
+        "WEBHOOK_PUBLIC_BASE_URL": "https://gateway.example.test",
+        "WEBHOOK_PATH": "/hooks/example-bot/inbound/webhook",
         "WEBHOOK_SECRET_TOKEN": "valid_telegram-secret_123",
         "WEBHOOK_LISTEN_PORT": "8080",
     }

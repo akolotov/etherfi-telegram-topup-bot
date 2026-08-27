@@ -22,11 +22,12 @@ from etherfi_bot.telegram_adapter import TelegramUpdateAdapter
 from etherfi_bot.webhook import TELEGRAM_SECRET_HEADER, WebhookBotRunner
 from tests.conftest import make_user, write_config
 
-WEBHOOK_PATH = "/hooks/etherfi-topup-bot/telegram/webhook"
+WEBHOOK_ORIGIN = "https://gateway.example.test"
+WEBHOOK_PATH = "/hooks/example-bot/inbound/webhook"
 WEBHOOK_SECRET = "valid_telegram-secret_123"
 
 
-def test_webhook_registers_tailscale_url_and_processes_a_valid_update(tmp_path: Path) -> None:
+def test_webhook_registers_gateway_url_and_processes_a_valid_update(tmp_path: Path) -> None:
     user = make_user(telegram_user_id=1001)
     dispatcher, states = _make_dispatcher(tmp_path, user)
     api = RecordingWebhookApi()
@@ -34,10 +35,7 @@ def test_webhook_registers_tailscale_url_and_processes_a_valid_update(tmp_path: 
         api=api,
         adapter=TelegramUpdateAdapter(dispatcher),
         dispatcher=dispatcher,
-        webhook_url=(
-            "https://wabelfish-funnel.taild8e94b.ts.net"
-            "/hooks/etherfi-topup-bot/telegram/webhook"
-        ),
+        webhook_url=f"{WEBHOOK_ORIGIN}{WEBHOOK_PATH}",
         webhook_path=WEBHOOK_PATH,
         secret_token=WEBHOOK_SECRET,
         listen_host="127.0.0.1",
@@ -57,10 +55,7 @@ def test_webhook_registers_tailscale_url_and_processes_a_valid_update(tmp_path: 
 
         assert status == 200
         assert api.webhook_payload == {
-            "url": (
-                "https://wabelfish-funnel.taild8e94b.ts.net"
-                "/hooks/etherfi-topup-bot/telegram/webhook"
-            ),
+            "url": f"{WEBHOOK_ORIGIN}{WEBHOOK_PATH}",
             "secret_token": WEBHOOK_SECRET,
             "allowed_updates": [
                 "message",
@@ -85,7 +80,7 @@ def test_webhook_rejects_bad_secret_and_invalid_json(tmp_path: Path) -> None:
         api=RecordingWebhookApi(),
         adapter=TelegramUpdateAdapter(dispatcher),
         dispatcher=dispatcher,
-        webhook_url="https://example.test/hooks/etherfi-topup-bot/telegram/webhook",
+        webhook_url=f"{WEBHOOK_ORIGIN}{WEBHOOK_PATH}",
         webhook_path=WEBHOOK_PATH,
         secret_token=WEBHOOK_SECRET,
         listen_host="127.0.0.1",
@@ -112,7 +107,7 @@ def test_webhook_acknowledges_valid_update_when_processing_fails(tmp_path: Path)
         api=RecordingWebhookApi(),
         adapter=adapter,
         dispatcher=dispatcher,
-        webhook_url="https://example.test/hooks/etherfi-topup-bot/telegram/webhook",
+        webhook_url=f"{WEBHOOK_ORIGIN}{WEBHOOK_PATH}",
         webhook_path=WEBHOOK_PATH,
         secret_token=WEBHOOK_SECRET,
         listen_host="127.0.0.1",
@@ -143,7 +138,7 @@ def test_webhook_exposes_health_check_through_gateway_path(tmp_path: Path) -> No
         api=RecordingWebhookApi(),
         adapter=TelegramUpdateAdapter(dispatcher),
         dispatcher=dispatcher,
-        webhook_url="https://example.test/hooks/etherfi-topup-bot/telegram/webhook",
+        webhook_url=f"{WEBHOOK_ORIGIN}{WEBHOOK_PATH}",
         webhook_path=WEBHOOK_PATH,
         secret_token=WEBHOOK_SECRET,
         listen_host="127.0.0.1",
@@ -155,7 +150,7 @@ def test_webhook_exposes_health_check_through_gateway_path(tmp_path: Path) -> No
     try:
         with urlopen(
             f"http://127.0.0.1:{server.server_port}"
-            "/hooks/etherfi-topup-bot/telegram/healthz",
+            "/hooks/example-bot/inbound/healthz",
             timeout=3,
         ) as response:
             assert response.status == 200
@@ -171,8 +166,8 @@ def test_webhook_scheduler_retries_after_unexpected_failure(caplog) -> None:
         api=RecordingWebhookApi(),
         adapter=FailingUpdateAdapter(),
         dispatcher=dispatcher,
-        webhook_url="https://example.test/telegram/webhook",
-        webhook_path="/telegram/webhook",
+        webhook_url="https://gateway.example.test/webhook",
+        webhook_path="/webhook",
         secret_token=WEBHOOK_SECRET,
     )
     dispatcher.runner = runner
