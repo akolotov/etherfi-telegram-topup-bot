@@ -155,12 +155,17 @@ Production and test must use different aliases and paths. Telegram permits only
 one webhook per bot token, so the test deployment must also use a different
 `BOT_TOKEN`.
 
-Start the gateway first if its shared Docker network does not yet exist, then
-recreate the bot container. No host port is published.
+Start the gateway from its checkout first if its shared Docker network does not
+yet exist. Then, from this repository's checkout, pull and recreate the bot
+container. No host port is published.
 
 ```bash
-cd ~/services/tailscale && docker compose up -d
-cd ~/projects/ether.fi-bot && docker compose pull && docker compose up -d
+# In the tailscale-funnel-gateway checkout:
+docker compose up -d
+
+# In this repository's checkout:
+docker compose pull
+docker compose up -d
 docker compose logs -f etherfi-topup-bot
 ```
 
