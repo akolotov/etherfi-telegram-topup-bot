@@ -1,6 +1,5 @@
 services:
   etherfi-topup-bot:
-    container_name: etherfi-topup-bot
     image: akolotov/etherfi-telegram-topup-bot:latest
     restart: unless-stopped
     init: true
@@ -12,20 +11,31 @@ services:
     env_file:
       - .env
     environment:
-      INGRESS_MODE: polling
+      INGRESS_MODE: webhook
       CONFIG_PATH: /config/config.json
       STATE_DIR: /state/user_states
-      POLLING_OFFSET_PATH: /state/polling_offset.json
-      POLLING_PENDING_UPDATE_PATH: /state/polling_pending_update.json
+      WEBHOOK_LISTEN_HOST: 0.0.0.0
+      WEBHOOK_LISTEN_PORT: "8080"
     volumes:
       - ./data/config.json:/config/config.json:ro
       - ./bot-state:/state
     secrets:
       - safe_proposer_private_key_1001
       - safe_proposer_private_key_1002
+    expose:
+      - "8080"
+    networks:
+      tailscale-ingress:
+        aliases:
+          - ${WEBHOOK_DOCKER_ALIAS:?WEBHOOK_DOCKER_ALIAS must be set}
 
 secrets:
   safe_proposer_private_key_1001:
     file: ./.secrets/safe_proposer_private_key_1001
   safe_proposer_private_key_1002:
     file: ./.secrets/safe_proposer_private_key_1002
+
+networks:
+  tailscale-ingress:
+    external: true
+    name: tailscale-ingress

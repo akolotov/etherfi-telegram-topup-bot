@@ -48,6 +48,8 @@ def test_runtime_settings_environment_overrides_env_file_blockscout_key(tmp_path
 
     assert settings.blockscout_pro_api_key == "proapi_environment_key"
     assert settings.safe_transaction_service_api_key == "safe_environment_key"
+
+
 def test_runtime_settings_reads_blockscout_retry_configuration(tmp_path) -> None:
     env_path = tmp_path / ".env"
     env_path.write_text(
@@ -100,8 +102,6 @@ def test_runtime_settings_rejects_non_finite_blockscout_retry_configuration(
 
     with pytest.raises(RuntimeError, match=key):
         RuntimeSettings.from_env_file(env_path, environ={})
-
-
 
 
 @pytest.mark.parametrize(
@@ -171,3 +171,68 @@ def test_runtime_settings_reads_safe_tx_service_base_url(tmp_path) -> None:
     settings = RuntimeSettings.from_env_file(env_path, environ={})
 
     assert settings.safe_tx_service_base_url == "https://safe.test"
+
+
+def test_runtime_settings_reads_tailscale_webhook_configuration(tmp_path) -> None:
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "\n".join(
+            [
+                "BOT_TOKEN=123:ABC",
+                "BLOCKSCOUT_PRO_API_KEY=proapi_file_key",
+                "SAFE_TRANSACTION_SERVICE_API_KEY=safe_file_key",
+                "INGRESS_MODE=webhook",
+                "WEBHOOK_PUBLIC_BASE_URL=https://gateway.example.test",
+                "WEBHOOK_PATH=/hooks/example-bot/inbound/webhook",
+                "WEBHOOK_SECRET_TOKEN=valid_telegram-secret_123",
+                "WEBHOOK_LISTEN_PORT=8080",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    settings = RuntimeSettings.from_env_file(env_path, environ={})
+
+    assert settings.ingress_mode == "webhook"
+    assert settings.webhook_url == (
+        "https://gateway.example.test/hooks/example-bot/inbound/webhook"
+    )
+    assert settings.webhook_secret_token == "valid_telegram-secret_123"
+    assert settings.webhook_listen_port == 8080
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "message"),
+    [
+        ("WEBHOOK_PUBLIC_BASE_URL", "http://example.test", "WEBHOOK_PUBLIC_BASE_URL"),
+        ("WEBHOOK_PATH", "relative/webhook", "WEBHOOK_PATH"),
+        ("WEBHOOK_SECRET_TOKEN", "replace-with-random-secret", "WEBHOOK_SECRET_TOKEN"),
+        ("WEBHOOK_SECRET_TOKEN", "contains a space", "WEBHOOK_SECRET_TOKEN"),
+        ("WEBHOOK_LISTEN_PORT", "70000", "WEBHOOK_LISTEN_PORT"),
+    ],
+)
+def test_runtime_settings_rejects_invalid_webhook_configuration(
+    tmp_path,
+    key: str,
+    value: str,
+    message: str,
+) -> None:
+    values = {
+        "BOT_TOKEN": "123:ABC",
+        "BLOCKSCOUT_PRO_API_KEY": "proapi_file_key",
+        "SAFE_TRANSACTION_SERVICE_API_KEY": "safe_file_key",
+        "INGRESS_MODE": "webhook",
+        "WEBHOOK_PUBLIC_BASE_URL": "https://gateway.example.test",
+        "WEBHOOK_PATH": "/hooks/example-bot/inbound/webhook",
+        "WEBHOOK_SECRET_TOKEN": "valid_telegram-secret_123",
+        "WEBHOOK_LISTEN_PORT": "8080",
+    }
+    values[key] = value
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "\n".join(f"{entry_key}={entry_value}" for entry_key, entry_value in values.items()),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match=message):
+        RuntimeSettings.from_env_file(env_path, environ={})

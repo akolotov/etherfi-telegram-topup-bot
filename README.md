@@ -82,7 +82,12 @@ For larger user counts, see [docs/balance-check-interval.md](docs/balance-check-
 
 ## Run
 
-The current runtime uses Telegram polling:
+External I/O runs on one asyncio lifecycle: `python-telegram-bot` handles both
+Telegram ingress modes and Telegram API calls, while `httpx.AsyncClient`
+handles Blockscout PRO and Safe Transaction Service requests. Safe signing and
+private-key file reads are moved off the event-loop thread.
+
+The default development runtime uses PTB polling:
 
 ```bash
 .venv/bin/python -m etherfi_bot.runtime
@@ -92,14 +97,77 @@ Useful environment overrides:
 
 - `CONFIG_PATH`: path to the JSON bot config, default `data/config.json`
 - `STATE_DIR`: persisted FSM state directory, default `data/user_states`
-- `POLLING_OFFSET_PATH`: persisted Telegram polling offset, default `data/polling_offset.json`
-- `POLLING_PENDING_UPDATE_PATH`: pending Telegram update recovery file, default `data/polling_pending_update.json`
-- `POLL_TIMEOUT_SECONDS`: Telegram long-poll timeout, default `25`
+- `INGRESS_MODE`: `polling` (development default) or `webhook`
 - `LOG_LEVEL`: runtime log level, default `INFO`
 - `BLOCKSCOUT_PRO_API_KEY`: Blockscout PRO API key, required for balance checks
 - `BLOCKSCOUT_MAX_ATTEMPTS`: total attempts for a transient Blockscout request, default `3`
 - `BLOCKSCOUT_RETRY_INITIAL_DELAY_SECONDS`: wait before the first retry, default `0.5`
 - `BLOCKSCOUT_RETRY_BACKOFF_FACTOR`: multiplier for each subsequent retry delay, default `2`
+
+## Webhook through Tailscale Funnel
+
+The shared Tailscale gateway on this machine already exposes the generic
+`/hooks/<docker-alias>/...` route. The Compose service reads its network alias
+from `WEBHOOK_DOCKER_ALIAS`; it must match the `<docker-alias>` segment in
+`WEBHOOK_PATH`.
+
+This deployment depends on the shared
+[tailscale-funnel-gateway](https://github.com/akolotov/tailscale-funnel-gateway).
+Deploy that gateway first: it creates the external `tailscale-ingress` Docker
+network and publishes the Funnel hostname used by `WEBHOOK_PUBLIC_BASE_URL`.
+
+Set the matching values in `.env` before deployment. `WEBHOOK_SECRET_TOKEN`
+must be a new random 1-256 character value using only letters, digits,
+underscores, and hyphens; it is sent to Telegram during `setWebhook` and the
+receiver rejects requests that do not include it.
+
+Generate a suitable secret with the project's virtualenv, then copy its output
+to `WEBHOOK_SECRET_TOKEN`:
+
+```sh
+.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
+```dotenv
+WEBHOOK_PUBLIC_BASE_URL=https://<funnel-hostname>.<tailnet>.ts.net
+WEBHOOK_DOCKER_ALIAS=<docker-alias>
+WEBHOOK_PATH=/hooks/<docker-alias>/<webhook-endpoint>
+WEBHOOK_SECRET_TOKEN=<new-random-secret>
+```
+
+## Parallel production and test deployments
+
+Run production and test from separate directories, each with its own `.env`,
+`bot-state`, and Telegram bot token. The Compose file does not set a global
+`container_name`, so Compose namespaces containers by project directory.
+
+The shared Funnel needs a different network alias and matching path for every
+deployment. For example, a test deployment can use:
+
+```dotenv
+BOT_TOKEN=<test-bot-token>
+WEBHOOK_DOCKER_ALIAS=<test-docker-alias>
+WEBHOOK_PATH=/hooks/<test-docker-alias>/<webhook-endpoint>
+WEBHOOK_SECRET_TOKEN=<different-random-secret>
+```
+
+Production and test must use different aliases and paths. Telegram permits only
+one webhook per bot token, so the test deployment must also use a different
+`BOT_TOKEN`.
+
+Start the gateway first if its shared Docker network does not yet exist, then
+recreate the bot container. No host port is published.
+
+```bash
+cd ~/services/tailscale && docker compose up -d
+cd ~/projects/ether.fi-bot && docker compose up -d --build
+docker compose logs -f etherfi-topup-bot
+```
+
+The bot uses `python-telegram-bot` for both polling and webhook ingress. In
+webhook mode PTB starts its webhook server, registers `WEBHOOK_PATH` with
+Telegram, validates the Telegram secret header, and processes one update at a
+time.
 
 ## Docker
 

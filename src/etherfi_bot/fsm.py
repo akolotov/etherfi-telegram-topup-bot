@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import logging
+from asyncio import Lock
 from datetime import datetime, timedelta
 from decimal import Decimal
-from threading import Lock, RLock
 
 from etherfi_bot.domain import (
     BalanceReadError,
@@ -45,11 +45,10 @@ class FsmService:
         self._clock = clock
         self._admin_telegram_user_id = admin_telegram_user_id
         self._logger = logger or logging.getLogger(__name__)
-        self._locks_guard = Lock()
-        self._user_locks: dict[int, RLock] = {}
+        self._user_locks: dict[int, Lock] = {}
 
-    def start(self, user: UserConfig) -> UserState:
-        with self._user_lock(user.telegram_user_id):
+    async def start(self, user: UserConfig) -> UserState:
+        async with self._user_lock(user.telegram_user_id):
             state = self._states.load(user.telegram_user_id)
             if state.state is not BotState.NOT_STARTED:
                 self._log_user_event(
@@ -75,8 +74,8 @@ class FsmService:
             )
             return state
 
-    def balance_tick(self, user: UserConfig) -> UserState:
-        with self._user_lock(user.telegram_user_id):
+    async def balance_tick(self, user: UserConfig) -> UserState:
+        async with self._user_lock(user.telegram_user_id):
             state = self._states.load(user.telegram_user_id)
             if state.state is BotState.NOT_STARTED:
                 self._log_user_event(
@@ -89,7 +88,7 @@ class FsmService:
                 return state
             previous_state = state.state
             try:
-                self._handle_balance_tick(user, state)
+                await self._handle_balance_tick(user, state)
             except TelegramForbiddenError as error:
                 state.reset_runtime()
                 self._log_user_event(
@@ -105,8 +104,8 @@ class FsmService:
             self._states.save(state)
             return state
 
-    def callback_ignore(self, user: UserConfig, message_id: int) -> UserState:
-        with self._user_lock(user.telegram_user_id):
+    async def callback_ignore(self, user: UserConfig, message_id: int) -> UserState:
+        async with self._user_lock(user.telegram_user_id):
             state = self._states.load(user.telegram_user_id)
             if not self._is_latest_callback(state, message_id):
                 self._log_user_event(
@@ -121,7 +120,7 @@ class FsmService:
                 return state
             previous_state = state.state
             try:
-                self._telegram.remove_buttons(user.telegram_user_id, message_id)
+                await self._telegram.remove_buttons(user.telegram_user_id, message_id)
                 self._clear_low_context(state)
                 state.state = BotState.MONITORING
                 self._log_user_event(
@@ -148,8 +147,8 @@ class FsmService:
             self._states.save(state)
             return state
 
-    def callback_top_up(self, user: UserConfig, message_id: int) -> UserState:
-        with self._user_lock(user.telegram_user_id):
+    async def callback_top_up(self, user: UserConfig, message_id: int) -> UserState:
+        async with self._user_lock(user.telegram_user_id):
             state = self._states.load(user.telegram_user_id)
             if not self._is_latest_callback(state, message_id):
                 self._log_user_event(
@@ -172,7 +171,7 @@ class FsmService:
                         state=state.state,
                         message_id=message_id,
                     )
-                    self._handle_new_safe_tx_top_up(user, state, message_id)
+                    await self._handle_new_safe_tx_top_up(user, state, message_id)
             except TelegramForbiddenError as error:
                 state.reset_runtime()
                 self._log_user_event(
@@ -189,8 +188,8 @@ class FsmService:
             self._states.save(state)
             return state
 
-    def user_blocked(self, user: UserConfig) -> UserState:
-        with self._user_lock(user.telegram_user_id):
+    async def user_blocked(self, user: UserConfig) -> UserState:
+        async with self._user_lock(user.telegram_user_id):
             state = self._states.load(user.telegram_user_id)
             previous_state = state.state
             state.reset_runtime()
@@ -204,22 +203,22 @@ class FsmService:
             )
             return state
 
-    def ignore_event(self, user: UserConfig) -> UserState:
-        with self._user_lock(user.telegram_user_id):
+    async def ignore_event(self, user: UserConfig) -> UserState:
+        async with self._user_lock(user.telegram_user_id):
             return self._states.load(user.telegram_user_id)
 
-    def _handle_balance_tick(self, user: UserConfig, state: UserState) -> None:
+    async def _handle_balance_tick(self, user: UserConfig, state: UserState) -> None:
         handled_at = self._clock.now()
         safe_status: SafeTxStatus | None = None
         safe_status_error: SafeTxStatusReadError | None = None
         try:
-            safe_status = self._read_safe_status_if_needed(user, state)
+            safe_status = await self._read_safe_status_if_needed(user, state)
         except SafeTxStatusReadError as error:
             safe_status_error = error
         balance: Decimal | None = None
         balance_error: BalanceReadError | None = None
         try:
-            balance = self._balances.get_balance(user)
+            balance = await self._balances.get_balance(user)
         except BalanceReadError as error:
             balance_error = error
 
@@ -233,7 +232,7 @@ class FsmService:
                 error_type=type(safe_status_error).__name__,
                 error=safe_status_error,
             )
-            self._notify_admin(
+            await self._notify_admin(
                 f"Safe tx status read failed for safe {user.safe_account}: {safe_status_error}"
             )
 
@@ -248,12 +247,12 @@ class FsmService:
                 error_type=type(balance_error).__name__,
                 error=balance_error,
             )
-            self._notify_admin(
+            await self._notify_admin(
                 "Balance read failed for target account "
                 f"{user.target_account}: {balance_error}"
             )
             if state.state is BotState.SAFE_TX_PENDING:
-                self._handle_safe_tx_tick_with_balance_error(
+                await self._handle_safe_tx_tick_with_balance_error(
                     user,
                     state,
                     safe_status,
@@ -265,7 +264,7 @@ class FsmService:
 
         assert balance is not None
         previous_balance = state.last_balance
-        self._handle_admin_balance_drop_notification(
+        await self._handle_admin_balance_drop_notification(
             user,
             state,
             balance,
@@ -314,12 +313,12 @@ class FsmService:
                         safe_tx_id=state.pending_safe_tx_id,
                     )
             else:
-                self._handle_safe_tx_tick(user, state, balance, safe_status, handled_at)
+                await self._handle_safe_tx_tick(user, state, balance, safe_status, handled_at)
         else:
-            self._handle_plain_balance_tick(user, state, balance, handled_at)
+            await self._handle_plain_balance_tick(user, state, balance, handled_at)
         self._schedule_next_tick(user, state, handled_at)
 
-    def _handle_plain_balance_tick(
+    async def _handle_plain_balance_tick(
         self,
         user: UserConfig,
         state: UserState,
@@ -330,7 +329,7 @@ class FsmService:
             previous_state = state.state
             previous_message_id = state.current_message_id
             if state.state in {BotState.LOW_PROMPT, BotState.LOW_COOLDOWN}:
-                self._remove_current_buttons(user, state)
+                await self._remove_current_buttons(user, state)
             self._clear_low_context(state)
             state.state = BotState.MONITORING
             if previous_state is BotState.MONITORING:
@@ -357,11 +356,11 @@ class FsmService:
             return
 
         if state.state is BotState.MONITORING:
-            self._send_first_low_prompt(user, state, balance, handled_at)
+            await self._send_first_low_prompt(user, state, balance, handled_at)
             return
 
         if state.state is BotState.LOW_PROMPT:
-            self._send_next_low_prompt(user, state, balance, handled_at)
+            await self._send_next_low_prompt(user, state, balance, handled_at)
             return
 
         if state.state is BotState.LOW_COOLDOWN:
@@ -378,7 +377,7 @@ class FsmService:
                 )
                 return
             previous_state = state.state
-            old_message_id, new_message_id = self._replace_current_with_low_prompt(
+            old_message_id, new_message_id = await self._replace_current_with_low_prompt(
                 user,
                 state,
                 balance,
@@ -405,7 +404,7 @@ class FsmService:
                 low_cooldown_until=state.low_cooldown_until,
             )
 
-    def _handle_safe_tx_tick(
+    async def _handle_safe_tx_tick(
         self,
         user: UserConfig,
         state: UserState,
@@ -460,9 +459,9 @@ class FsmService:
             )
             return
 
-        self._send_safe_tx_reminder_if_due(user, state, handled_at)
+        await self._send_safe_tx_reminder_if_due(user, state, handled_at)
 
-    def _handle_safe_tx_tick_with_balance_error(
+    async def _handle_safe_tx_tick_with_balance_error(
         self,
         user: UserConfig,
         state: UserState,
@@ -506,7 +505,7 @@ class FsmService:
             return
 
         if safe_status_error is None:
-            self._send_safe_tx_reminder_if_due(user, state, handled_at)
+            await self._send_safe_tx_reminder_if_due(user, state, handled_at)
         else:
             self._log_user_event(
                 logging.DEBUG,
@@ -517,7 +516,7 @@ class FsmService:
                 safe_tx_id=state.pending_safe_tx_id,
             )
 
-    def _send_safe_tx_reminder_if_due(
+    async def _send_safe_tx_reminder_if_due(
         self,
         user: UserConfig,
         state: UserState,
@@ -536,7 +535,7 @@ class FsmService:
             )
             return
         safe_tx_id = state.pending_safe_tx_id
-        message_id = self._telegram.send_safe_tx_pending_prompt(user, safe_tx_id)
+        message_id = await self._telegram.send_safe_tx_pending_prompt(user, safe_tx_id)
         state.current_message_id = None
         state.tx_reminder_until = handled_at + self._cooldown_delta(user)
         state.state = BotState.SAFE_TX_PENDING
@@ -550,18 +549,18 @@ class FsmService:
             message_id=message_id,
         )
 
-    def _handle_new_safe_tx_top_up(
+    async def _handle_new_safe_tx_top_up(
         self,
         user: UserConfig,
         state: UserState,
         message_id: int,
     ) -> None:
         previous_state = state.state
-        self._telegram.remove_buttons(user.telegram_user_id, message_id)
+        await self._telegram.remove_buttons(user.telegram_user_id, message_id)
         state.current_message_id = None
         self._clear_low_context(state)
         try:
-            fresh_balance = self._balances.get_balance(user)
+            fresh_balance = await self._balances.get_balance(user)
         except BalanceReadError as error:
             self._log_user_event(
                 logging.WARNING,
@@ -575,7 +574,7 @@ class FsmService:
                 error_type=type(error).__name__,
                 error=error,
             )
-            self._notify_admin(
+            await self._notify_admin(
                 "Fresh balance read failed for target account "
                 f"{user.target_account}: {error}"
             )
@@ -606,8 +605,12 @@ class FsmService:
             return
 
         try:
-            private_key = self._private_keys.read_private_key(user.safe_proposer_key_file)
-            safe_tx_id = self._safe_wallet.create_top_up_tx(user, amount, private_key)
+            private_key = await self._private_keys.read_private_key(
+                user.safe_proposer_key_file
+            )
+            safe_tx_id = await self._safe_wallet.create_top_up_tx(
+                user, amount, private_key
+            )
         except (KeyError, OSError, ValueError, SafeTxCreateError) as error:
             self._log_user_event(
                 logging.ERROR,
@@ -623,7 +626,7 @@ class FsmService:
                 error_type=type(error).__name__,
                 error=error,
             )
-            self._notify_admin(
+            await self._notify_admin(
                 f"Safe tx creation failed for safe {user.safe_account}: {error}"
             )
             state.state = BotState.MONITORING
@@ -642,17 +645,17 @@ class FsmService:
             target_max_balance=user.target_max_balance,
             safe_proposer_key_file=user.safe_proposer_key_file,
         )
-        self._notify_admin(
+        await self._notify_admin(
             f"Tx created in safe {user.safe_account} to top up {user.target_account}"
         )
         # A Telegram 403 here is intentional state signal: the user blocked the bot
         # after requesting top-up, so callback_top_up resets the user to S0.
-        self._telegram.send_safe_tx_created(user, safe_tx_id)
+        await self._telegram.send_safe_tx_created(user, safe_tx_id)
         state.pending_safe_tx_id = safe_tx_id
         state.tx_reminder_until = self._clock.now() + self._cooldown_delta(user)
         state.state = BotState.SAFE_TX_PENDING
 
-    def _send_first_low_prompt(
+    async def _send_first_low_prompt(
         self,
         user: UserConfig,
         state: UserState,
@@ -660,7 +663,7 @@ class FsmService:
         handled_at: datetime,
     ) -> None:
         previous_state = state.state
-        message_id = self._telegram.send_low_balance_prompt(user, balance)
+        message_id = await self._telegram.send_low_balance_prompt(user, balance)
         state.current_message_id = message_id
         state.notification_count = 1
         if user.low_balance_notification_limit == 1:
@@ -683,7 +686,7 @@ class FsmService:
             low_cooldown_until=state.low_cooldown_until,
         )
 
-    def _send_next_low_prompt(
+    async def _send_next_low_prompt(
         self,
         user: UserConfig,
         state: UserState,
@@ -692,7 +695,9 @@ class FsmService:
     ) -> None:
         previous_state = state.state
         next_count = state.notification_count + 1
-        old_message_id, new_message_id = self._replace_current_with_low_prompt(user, state, balance)
+        old_message_id, new_message_id = await self._replace_current_with_low_prompt(
+            user, state, balance
+        )
         state.notification_count = next_count
         if next_count >= user.low_balance_notification_limit:
             state.notification_count = user.low_balance_notification_limit
@@ -716,24 +721,26 @@ class FsmService:
             low_cooldown_until=state.low_cooldown_until,
         )
 
-    def _replace_current_with_low_prompt(
+    async def _replace_current_with_low_prompt(
         self,
         user: UserConfig,
         state: UserState,
         balance: Decimal,
     ) -> tuple[int | None, int]:
         old_message_id = state.current_message_id
-        self._remove_current_buttons(user, state)
-        message_id = self._telegram.send_low_balance_prompt(user, balance)
+        await self._remove_current_buttons(user, state)
+        message_id = await self._telegram.send_low_balance_prompt(user, balance)
         state.current_message_id = message_id
         return old_message_id, message_id
 
-    def _remove_current_buttons(self, user: UserConfig, state: UserState) -> None:
+    async def _remove_current_buttons(self, user: UserConfig, state: UserState) -> None:
         if state.current_message_id is not None:
-            self._telegram.remove_buttons(user.telegram_user_id, state.current_message_id)
+            await self._telegram.remove_buttons(
+                user.telegram_user_id, state.current_message_id
+            )
             state.current_message_id = None
 
-    def _read_safe_status_if_needed(
+    async def _read_safe_status_if_needed(
         self,
         user: UserConfig,
         state: UserState,
@@ -742,7 +749,7 @@ class FsmService:
             return None
         if state.pending_safe_tx_id is None:
             return None
-        return self._safe_wallet.get_tx_status(user, state.pending_safe_tx_id)
+        return await self._safe_wallet.get_tx_status(user, state.pending_safe_tx_id)
 
     def _is_latest_callback(self, state: UserState, message_id: int) -> bool:
         return (
@@ -759,7 +766,7 @@ class FsmService:
         state.last_balance_checked_at = handled_at
         state.next_tick_at = handled_at + self._tick_delta(user)
 
-    def _handle_admin_balance_drop_notification(
+    async def _handle_admin_balance_drop_notification(
         self,
         user: UserConfig,
         state: UserState,
@@ -785,17 +792,19 @@ class FsmService:
             balance=balance,
             threshold=user.balance_threshold,
         )
-        self._notify_admin(
+        await self._notify_admin(
             f"{user.target_account} balance dropped below {user.balance_threshold}, "
             f"current balance {balance}"
         )
 
-    def _notify_admin(self, message: str) -> None:
+    async def _notify_admin(self, message: str) -> None:
         if self._admin_telegram_user_id is None:
             self._logger.debug("admin_notification_skipped reason=admin_not_configured")
             return
         try:
-            self._telegram.send_admin_error(self._admin_telegram_user_id, message)
+            await self._telegram.send_admin_error(
+                self._admin_telegram_user_id, message
+            )
         except Exception as error:
             self._logger.warning(
                 "admin_notification_failed admin_telegram_user_id=%s error_type=%s error=%s",
@@ -844,14 +853,13 @@ class FsmService:
         values = tuple(_log_value(value) for value in log_fields.values())
         self._logger.log(level, message, *values)
 
-    def _user_lock(self, telegram_user_id: int) -> RLock:
+    def _user_lock(self, telegram_user_id: int) -> Lock:
         normalized_user_id = int(telegram_user_id)
-        with self._locks_guard:
-            lock = self._user_locks.get(normalized_user_id)
-            if lock is None:
-                lock = RLock()
-                self._user_locks[normalized_user_id] = lock
-            return lock
+        lock = self._user_locks.get(normalized_user_id)
+        if lock is None:
+            lock = Lock()
+            self._user_locks[normalized_user_id] = lock
+        return lock
 
 
 def _log_value(value: object) -> object:

@@ -36,7 +36,7 @@ class AaveV3NativeUsdcWithdrawPreparer:
         self.decimals = int(decimals)
         self._balances = balances
 
-    def preflight_check(
+    async def preflight_check(
         self,
         safe_address: str,
         amount: Decimal,
@@ -45,7 +45,7 @@ class AaveV3NativeUsdcWithdrawPreparer:
         del target_account
         amount_base_units = decimal_to_base_units(amount, self.decimals)
         try:
-            balance_base_units = self._balances.get_balance_base_units(
+            balance_base_units = await self._balances.get_balance_base_units(
                 self.ausdc_address,
                 checksum(safe_address),
             )
