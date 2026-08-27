@@ -19,6 +19,12 @@ class TelegramGateway(Protocol):
     async def send_safe_tx_created(self, user: UserConfig, safe_tx_id: str) -> int:
         """Notify the user that a Safe transaction exists and needs signatures."""
 
+    async def send_top_up_not_needed(self, user: UserConfig) -> int:
+        """Notify the user that the latest balance no longer needs a top-up."""
+
+    async def send_insufficient_safe_balance(self, user: UserConfig) -> int:
+        """Notify the user that the Safe cannot fund the requested top-up."""
+
     async def send_safe_tx_pending_prompt(self, user: UserConfig, safe_tx_id: str) -> int:
         """Send a pending Safe transaction reminder without inline buttons."""
 

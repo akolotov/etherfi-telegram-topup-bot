@@ -5,7 +5,7 @@ from decimal import Decimal
 from safe_eth.safe import SafeOperationEnum
 
 from etherfi_bot.blockscout import BlockscoutJsonRpcError, Erc20BalanceReader
-from etherfi_bot.domain import SafeTxCreateError
+from etherfi_bot.domain import InsufficientSafeBalanceError, SafeTxCreateError
 from etherfi_bot.safe_tx_preparers import (
     SafeTxCall,
     checksum,
@@ -52,7 +52,7 @@ class AaveV3NativeUsdcWithdrawPreparer:
         except (BlockscoutJsonRpcError, ValueError) as error:
             raise SafeTxCreateError("AAVE preflight balance check failed") from error
         if balance_base_units < amount_base_units:
-            raise SafeTxCreateError(
+            raise InsufficientSafeBalanceError(
                 "AAVE preflight balance check failed: "
                 f"required {amount_base_units} aUSDC base units, "
                 f"available {balance_base_units}"

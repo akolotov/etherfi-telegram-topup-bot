@@ -39,6 +39,18 @@ class TelegramBotGateway:
             "Safe transaction was created. Please sign and execute it.",
         )
 
+    async def send_top_up_not_needed(self, user: UserConfig) -> int:
+        return await self._send_user_message(
+            user,
+            "The latest account balance no longer requires a top-up.",
+        )
+
+    async def send_insufficient_safe_balance(self, user: UserConfig) -> int:
+        return await self._send_user_message(
+            user,
+            "The Safe does not have enough available balance to create this top-up.",
+        )
+
     async def send_safe_tx_pending_prompt(
         self, user: UserConfig, safe_tx_id: str
     ) -> int:

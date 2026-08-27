@@ -4,7 +4,12 @@ import asyncio
 from datetime import timedelta
 from decimal import Decimal
 
-from etherfi_bot.domain import BotState, SafeTxCreateError, SafeTxStatus
+from etherfi_bot.domain import (
+    BotState,
+    InsufficientSafeBalanceError,
+    SafeTxCreateError,
+    SafeTxStatus,
+)
 from etherfi_bot.fsm import FsmService
 from etherfi_bot.mocks import (
     MockBalanceProvider,
@@ -439,6 +444,7 @@ def test_top_up_fresh_ok_or_non_positive_amount_skips_safe_tx(harness_factory) -
     assert ok_state.current_message_id is None
     assert len(ok_harness.safe.created_txs) == 0
     assert ok_harness.telegram.admin_errors == []
+    assert ok_harness.telegram.messages[-1].kind == "top_up_not_needed"
 
     weird_user = make_user(telegram_user_id=3003, threshold="10", max_balance="5")
     weird_harness = harness_factory(weird_user)
@@ -453,6 +459,7 @@ def test_top_up_fresh_ok_or_non_positive_amount_skips_safe_tx(harness_factory) -
     assert weird_state.current_message_id is None
     assert len(weird_harness.safe.created_txs) == 0
     assert weird_harness.telegram.admin_errors == []
+    assert weird_harness.telegram.messages[-1].kind == "top_up_not_needed"
 
 
 def test_top_up_safe_create_failed_notifies_admin(harness_factory) -> None:
@@ -493,6 +500,7 @@ def test_top_up_safe_preflight_failed_notifies_admin_and_returns_to_monitoring(
     assert state.pending_safe_tx_id is None
     assert state.current_message_id is None
     assert "AAVE preflight balance check failed" in harness.telegram.admin_errors[-1][1]
+    assert harness.telegram.messages[-1].kind == "insufficient_safe_balance"
 
 
 def test_top_up_from_s3_uses_same_safe_tx_path_as_s2(harness_factory) -> None:
@@ -1056,7 +1064,7 @@ class BlockingSafeWalletClient:
 class PreflightFailingSafeWalletClient:
     async def create_top_up_tx(self, user, amount, safe_proposer_private_key):
         del user, amount, safe_proposer_private_key
-        raise SafeTxCreateError("AAVE preflight balance check failed")
+        raise InsufficientSafeBalanceError("AAVE preflight balance check failed")
 
     async def get_tx_status(self, user, safe_tx_id):
         del user, safe_tx_id

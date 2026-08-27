@@ -32,6 +32,10 @@ class SafeTxCreateError(RuntimeError):
     """The Safe transaction could not be created or registered."""
 
 
+class InsufficientSafeBalanceError(SafeTxCreateError):
+    """The Safe does not have enough balance to fund the requested top-up."""
+
+
 class SafeTxStatusReadError(RuntimeError):
     """The Safe transaction status could not be read."""
 

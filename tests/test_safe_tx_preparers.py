@@ -6,7 +6,7 @@ import pytest
 from eth_abi import decode as decode_abi
 
 from etherfi_bot.blockscout import BlockscoutJsonRpcError
-from etherfi_bot.domain import SafeTxCreateError
+from etherfi_bot.domain import InsufficientSafeBalanceError, SafeTxCreateError
 from etherfi_bot.safe_tx_preparers import (
     AAVE_V3_ARBITRUM_POOL,
     ARBITRUM_AAVE_NATIVE_USDC_ATOKEN,
@@ -39,7 +39,7 @@ async def test_aave_preflight_fails_when_safe_ausdc_balance_is_insufficient() ->
     balances = RecordingBalances(balance_base_units=999_999)
     preparer = AaveV3NativeUsdcWithdrawPreparer(balances)
 
-    with pytest.raises(SafeTxCreateError, match="required 1000000"):
+    with pytest.raises(InsufficientSafeBalanceError, match="required 1000000"):
         await preparer.preflight_check(
             "0x0000000000000000000000000000000000000001",
             Decimal("1"),

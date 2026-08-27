@@ -35,6 +35,30 @@ async def test_ptb_gateway_sends_messages_and_edits_markup() -> None:
     )
 
 
+async def test_ptb_gateway_sends_top_up_outcome_messages() -> None:
+    bot = SimpleNamespace(
+        send_message=AsyncMock(return_value=SimpleNamespace(message_id=42)),
+    )
+    gateway = TelegramBotGateway(bot)
+    user = make_user()
+
+    await gateway.send_top_up_not_needed(user)
+    await gateway.send_insufficient_safe_balance(user)
+
+    assert [call.kwargs for call in bot.send_message.await_args_list] == [
+        {
+            "chat_id": user.telegram_user_id,
+            "text": "The latest account balance no longer requires a top-up.",
+        },
+        {
+            "chat_id": user.telegram_user_id,
+            "text": (
+                "The Safe does not have enough available balance to create this top-up."
+            ),
+        },
+    ]
+
+
 @pytest.mark.parametrize(
     ("error", "expected"),
     [
