@@ -19,6 +19,10 @@ only the minimum needed to keep it aligned with the current local config. Do
 not delete it during normal test cleanup. Do not put key, token, or secret
 values into it.
 
+When testing a locally built bot image, set `ETHERFI_TOPUP_BOT_IMAGE` to the
+exact local image tag for both Compose commands below. This must override the
+default registry image; for example, `export ETHERFI_TOPUP_BOT_IMAGE=etherfi-topup-bot:local`.
+
 Validate and start the configured bot with:
 
 ```bash
