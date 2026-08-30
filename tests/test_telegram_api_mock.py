@@ -59,6 +59,20 @@ async def test_ptb_gateway_sends_top_up_outcome_messages() -> None:
     ]
 
 
+async def test_ptb_gateway_marks_admin_messages() -> None:
+    bot = SimpleNamespace(
+        send_message=AsyncMock(return_value=SimpleNamespace(message_id=42)),
+    )
+    gateway = TelegramBotGateway(bot)
+
+    await gateway.send_admin_error(9001, "Safe transaction was created.")
+
+    bot.send_message.assert_awaited_once_with(
+        chat_id=9001,
+        text="🛠️ Safe transaction was created.",
+    )
+
+
 @pytest.mark.parametrize(
     ("error", "expected"),
     [

@@ -81,7 +81,7 @@ class TelegramBotGateway:
     ) -> None:
         try:
             await self._bot.send_message(
-                chat_id=int(admin_telegram_user_id), text=message
+                chat_id=int(admin_telegram_user_id), text=f"🛠️ {message}"
             )
         except Forbidden as error:
             raise TelegramForbiddenError(str(error)) from error
