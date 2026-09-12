@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Bot,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    MenuButtonWebApp,
+    WebAppInfo,
+)
 from telegram.error import BadRequest, Forbidden
 
 from etherfi_bot.domain import TelegramForbiddenError, UserConfig
@@ -11,8 +17,9 @@ from etherfi_bot.domain import TelegramForbiddenError, UserConfig
 class TelegramBotGateway:
     """Async Telegram gateway backed entirely by python-telegram-bot."""
 
-    def __init__(self, bot: Bot) -> None:
+    def __init__(self, bot: Bot, mini_app_url: str | None = None) -> None:
         self._bot = bot
+        self._mini_app_url = mini_app_url
 
     async def send_low_balance_prompt(
         self, user: UserConfig, balance: Decimal
@@ -97,6 +104,66 @@ class TelegramBotGateway:
             raise
         return True
 
+    async def configure_top_up_menu(self, user: UserConfig) -> None:
+        url = f"{self._require_mini_app_url().rstrip('/')}/"
+        try:
+            await self._bot.set_chat_menu_button(
+                chat_id=user.telegram_user_id,
+                menu_button=MenuButtonWebApp(text="Top Up", web_app=WebAppInfo(url=url)),
+            )
+        except Forbidden as error:
+            raise TelegramForbiddenError(str(error)) from error
+
+    async def send_manual_top_up_launcher(self, user: UserConfig) -> int:
+        url = f"{self._require_mini_app_url().rstrip('/')}/"
+        try:
+            message = await self._bot.send_message(
+                chat_id=user.telegram_user_id,
+                text="Choose an amount in the Top Up app.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("Open Top Up", web_app=WebAppInfo(url=url))
+                ]]),
+            )
+        except Forbidden as error:
+            raise TelegramForbiddenError(str(error)) from error
+        return int(message.message_id)
+
+    async def send_manual_top_up_confirmation(
+        self,
+        user: UserConfig,
+        *,
+        request_id: str,
+        amount: Decimal,
+        safe_balance: Decimal,
+    ) -> int:
+        try:
+            message = await self._bot.send_message(
+                chat_id=user.telegram_user_id,
+                text=(
+                    f"Top up {_format_amount(amount)} USDC?\n\n"
+                    f"From Safe: {_short_address(user.safe_account)}\n"
+                    f"To card: {_short_address(user.target_account)}\n"
+                    f"Available on Safe: {_format_amount(safe_balance)} aUSDC\n\n"
+                    "This request expires in 10 minutes."
+                ),
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton(
+                        "Confirm", callback_data=f"manual_confirm:{request_id}"
+                    ),
+                    InlineKeyboardButton(
+                        "Cancel", callback_data=f"manual_cancel:{request_id}"
+                    ),
+                ]]),
+            )
+        except Forbidden as error:
+            raise TelegramForbiddenError(str(error)) from error
+        return int(message.message_id)
+
+    def _require_mini_app_url(self) -> str:
+        if self._mini_app_url is None:
+            raise RuntimeError("Mini App URL is not configured")
+        return self._mini_app_url
+
     async def _send_user_message(self, user: UserConfig, text: str) -> int:
         try:
             message = await self._bot.send_message(
@@ -105,3 +172,12 @@ class TelegramBotGateway:
         except Forbidden as error:
             raise TelegramForbiddenError(str(error)) from error
         return int(message.message_id)
+
+
+def _short_address(address: str) -> str:
+    return f"{address[:6]}…{address[-4:]}"
+
+
+def _format_amount(amount: Decimal) -> str:
+    value = format(amount, "f")
+    return value.rstrip("0").rstrip(".") if "." in value else value

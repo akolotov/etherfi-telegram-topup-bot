@@ -5,7 +5,12 @@ from decimal import Decimal
 from safe_eth.safe import SafeOperationEnum
 
 from etherfi_bot.blockscout import BlockscoutJsonRpcError, Erc20BalanceReader
-from etherfi_bot.domain import InsufficientSafeBalanceError, SafeTxCreateError
+from etherfi_bot.domain import (
+    BalanceReadError,
+    InsufficientSafeBalanceError,
+    SafeTxCreateError,
+    UserConfig,
+)
 from etherfi_bot.safe_tx_preparers import (
     SafeTxCall,
     checksum,
@@ -77,3 +82,26 @@ class AaveV3NativeUsdcWithdrawPreparer:
             data=data,
             operation=SafeOperationEnum.CALL.value,
         )
+
+
+class AaveSafeBalanceProvider:
+    def __init__(
+        self,
+        balances: Erc20BalanceReader,
+        *,
+        ausdc_address: str = ARBITRUM_AAVE_NATIVE_USDC_ATOKEN,
+        decimals: int = USDC_DECIMALS,
+    ) -> None:
+        self._balances = balances
+        self._ausdc_address = checksum(ausdc_address)
+        self._decimals = int(decimals)
+
+    async def get_available_balance(self, user: UserConfig) -> Decimal:
+        try:
+            base_units = await self._balances.get_balance_base_units(
+                self._ausdc_address,
+                checksum(user.safe_account),
+            )
+        except (BlockscoutJsonRpcError, ValueError) as error:
+            raise BalanceReadError("Safe Aave balance read failed") from error
+        return Decimal(base_units) / (Decimal(10) ** self._decimals)

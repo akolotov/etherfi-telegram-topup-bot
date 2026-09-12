@@ -15,6 +15,8 @@ dependencies = [
     "packaging>=26.0",
     "python-telegram-bot[webhooks]>=22.5",
     "safe-eth-py>=7.20.0",
+    "starlette>=0.47,<2",
+    "uvicorn>=0.34,<1",
     "web3>=7.16.0",
 ]
 
@@ -26,6 +28,9 @@ dev = ["pytest>=8.0", "pytest-asyncio>=1.1.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+etherfi_bot = ["static/mini_app/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

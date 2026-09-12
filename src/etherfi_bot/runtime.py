@@ -16,9 +16,18 @@ from etherfi_bot.blockscout import (
     BlockscoutJsonRpcClient,
 )
 from etherfi_bot.dispatcher import BotDispatcher
-from etherfi_bot.ports import BalanceProvider, PrivateKeyProvider, SafeWalletClient
+from etherfi_bot.mini_app import create_mini_app
+from etherfi_bot.ports import (
+    BalanceProvider,
+    PrivateKeyProvider,
+    SafeBalanceProvider,
+    SafeWalletClient,
+)
 from etherfi_bot.private_keys import FilePrivateKeyProvider
-from etherfi_bot.safe_tx_preparers import AaveV3NativeUsdcWithdrawPreparer
+from etherfi_bot.safe_tx_preparers import (
+    AaveSafeBalanceProvider,
+    AaveV3NativeUsdcWithdrawPreparer,
+)
 from etherfi_bot.safe_wallet import (
     ARBITRUM_CHAIN_ID,
     SafeTxServiceClient,
@@ -45,6 +54,7 @@ class RuntimeComponents:
     dispatcher: BotDispatcher
     adapter: TelegramUpdateAdapter
     balances: BalanceProvider
+    safe_balances: SafeBalanceProvider
     safe_wallet: SafeWalletClient
     private_keys: PrivateKeyProvider
     clock: SystemClock
@@ -166,6 +176,13 @@ class RuntimeComponents:
 def build_runtime(settings: RuntimeSettings) -> RuntimeComponents:
     config_repository = JsonConfigRepository(settings.config_path)
     config = config_repository.load()
+    manual_top_up_enabled = any(
+        user.manual_top_up is not None for user in config.users_by_telegram_id.values()
+    )
+    if manual_top_up_enabled and settings.mini_app_public_url is None:
+        raise RuntimeError("MINI_APP_PUBLIC_URL is required when manual_top_up is configured")
+    if manual_top_up_enabled and settings.ingress_mode != "webhook":
+        raise RuntimeError("manual_top_up requires webhook ingress")
     state_repository = JsonStateRepository(settings.state_dir)
 
     builder = ApplicationBuilder().token(settings.bot_token).concurrent_updates(False)
@@ -174,7 +191,7 @@ def build_runtime(settings: RuntimeSettings) -> RuntimeComponents:
             f"{settings.telegram_api_base_url.rstrip('/')}/bot"
         ).base_file_url(f"{settings.telegram_api_base_url.rstrip('/')}/file/bot")
     application = builder.build()
-    gateway = TelegramBotGateway(application.bot)
+    gateway = TelegramBotGateway(application.bot, settings.mini_app_public_url)
     private_keys = FilePrivateKeyProvider()
 
     optimism_rpc = BlockscoutJsonRpcClient(
@@ -195,6 +212,7 @@ def build_runtime(settings: RuntimeSettings) -> RuntimeComponents:
         retry_backoff_factor=settings.blockscout_retry_backoff_factor,
     )
     arbitrum_token_reader = BlockscoutErc20BalanceReader(arbitrum_rpc)
+    safe_balances = AaveSafeBalanceProvider(arbitrum_token_reader)
     safe_tx_service = SafeTxServiceClient(
         settings.safe_transaction_service_api_key,
         base_url=settings.safe_tx_service_base_url,
@@ -212,6 +230,7 @@ def build_runtime(settings: RuntimeSettings) -> RuntimeComponents:
         safe_wallet=safe_wallet,
         private_keys=private_keys,
         clock=clock,
+        safe_balances=safe_balances,
     )
     adapter = TelegramUpdateAdapter(dispatcher)
     components = RuntimeComponents(
@@ -220,6 +239,7 @@ def build_runtime(settings: RuntimeSettings) -> RuntimeComponents:
         dispatcher=dispatcher,
         adapter=adapter,
         balances=balances,
+        safe_balances=safe_balances,
         safe_wallet=safe_wallet,
         private_keys=private_keys,
         clock=clock,
@@ -282,16 +302,62 @@ def run_runtime(components: RuntimeComponents, settings: RuntimeSettings) -> Non
         )
         return
     assert settings.webhook_secret_token is not None
-    components.application.run_webhook(
-        listen=settings.webhook_listen_host,
-        port=settings.webhook_listen_port,
-        url_path=settings.webhook_path.lstrip("/"),
-        webhook_url=settings.webhook_url,
-        allowed_updates=ALLOWED_UPDATES,
-        drop_pending_updates=False,
-        max_connections=1,
-        secret_token=settings.webhook_secret_token,
+    if settings.mini_app_public_url is None:
+        components.application.run_webhook(
+            listen=settings.webhook_listen_host,
+            port=settings.webhook_listen_port,
+            url_path=settings.webhook_path.lstrip("/"),
+            webhook_url=settings.webhook_url,
+            allowed_updates=ALLOWED_UPDATES,
+            drop_pending_updates=False,
+            max_connections=1,
+            secret_token=settings.webhook_secret_token,
+        )
+        return
+    asyncio.run(_run_combined_webhook_runtime(components, settings))
+
+
+async def _run_combined_webhook_runtime(
+    components: RuntimeComponents, settings: RuntimeSettings
+) -> None:
+    import uvicorn
+
+    assert settings.webhook_secret_token is not None
+    assert settings.mini_app_public_url is not None
+    web = create_mini_app(
+        application=components.application,
+        dispatcher=components.dispatcher,
+        bot_token=settings.bot_token,
+        webhook_path=settings.webhook_path,
+        webhook_secret_token=settings.webhook_secret_token,
+        mini_app_public_url=settings.mini_app_public_url,
     )
+    server = uvicorn.Server(
+        uvicorn.Config(
+            web,
+            host=settings.webhook_listen_host,
+            port=settings.webhook_listen_port,
+            log_level="info",
+        )
+    )
+    await components.application.initialize()
+    try:
+        await components.application.bot.set_webhook(
+            url=settings.webhook_url,
+            allowed_updates=ALLOWED_UPDATES,
+            drop_pending_updates=False,
+            max_connections=1,
+            secret_token=settings.webhook_secret_token,
+        )
+        await components.application.start()
+        await components.startup()
+        await server.serve()
+    finally:
+        await components.stop()
+        if components.application.running:
+            await components.application.stop()
+        await components.shutdown()
+        await components.application.shutdown()
 
 
 def resolve_log_level(raw_log_level: str) -> tuple[int, str, str | None]:

@@ -3,7 +3,9 @@ from __future__ import annotations
 import logging
 from math import ceil
 
-from etherfi_bot.domain import BotConfig, BotState, UserConfig, UserState
+from decimal import Decimal
+
+from etherfi_bot.domain import BotConfig, BotState, ManualTopUpContext, UserConfig, UserState
 from etherfi_bot.fsm import FsmService
 from etherfi_bot.ports import (
     BalanceProvider,
@@ -11,6 +13,7 @@ from etherfi_bot.ports import (
     ConfigRepository,
     PrivateKeyProvider,
     SafeWalletClient,
+    SafeBalanceProvider,
     StateRepository,
     TelegramGateway,
 )
@@ -27,6 +30,7 @@ class BotDispatcher:
         private_keys: PrivateKeyProvider,
         clock: Clock,
         logger: logging.Logger | None = None,
+        safe_balances: SafeBalanceProvider | None = None,
     ) -> None:
         self._config_repository = config_repository
         self._states = state_repository
@@ -44,6 +48,7 @@ class BotDispatcher:
             clock=clock,
             admin_telegram_user_id=self.config.admin_telegram_user_id,
             logger=logger,
+            safe_balances=safe_balances,
         )
 
     def reload_config(self) -> BotConfig:
@@ -56,7 +61,55 @@ class BotDispatcher:
         if user is None:
             self._log_unknown_user("start", telegram_user_id)
             return None
-        return await self.fsm.start(user)
+        state = await self.fsm.start(user)
+        if user.manual_top_up is not None:
+            await self._telegram.configure_top_up_menu(user)
+        return state
+
+    async def manual_top_up_launcher(self, telegram_user_id: int) -> int | None:
+        user = self._configured_user(telegram_user_id)
+        if user is None or user.manual_top_up is None:
+            return None
+        state = self._states.load(telegram_user_id)
+        if state.state is BotState.NOT_STARTED:
+            return None
+        return await self._telegram.send_manual_top_up_launcher(user)
+
+    async def manual_top_up_context(
+        self, telegram_user_id: int
+    ) -> ManualTopUpContext | None:
+        user = self._configured_user(telegram_user_id)
+        if user is None or user.manual_top_up is None:
+            return None
+        return await self.fsm.manual_top_up_context(user)
+
+    async def prepare_manual_top_up(
+        self, telegram_user_id: int, amount: Decimal
+    ) -> UserState | None:
+        user = self._configured_user(telegram_user_id)
+        if user is None or user.manual_top_up is None:
+            return None
+        return await self.fsm.prepare_manual_top_up(user, amount)
+
+    async def callback_manual_top_up_confirm(
+        self, telegram_user_id: int, message_id: int, request_id: str
+    ) -> UserState | None:
+        user = self._configured_user(telegram_user_id)
+        if user is None:
+            return None
+        return await self.fsm.callback_manual_top_up_confirm(
+            user, message_id, request_id
+        )
+
+    async def callback_manual_top_up_cancel(
+        self, telegram_user_id: int, message_id: int, request_id: str
+    ) -> UserState | None:
+        user = self._configured_user(telegram_user_id)
+        if user is None:
+            return None
+        return await self.fsm.callback_manual_top_up_cancel(
+            user, message_id, request_id
+        )
 
     async def balance_tick(self, telegram_user_id: int) -> UserState | None:
         user = self._configured_user(telegram_user_id)
@@ -110,6 +163,19 @@ class BotDispatcher:
         recovered_user_ids: list[int] = []
         for user in self.config.users_by_telegram_id.values():
             if user.telegram_user_id in persisted_user_ids:
+                state = self._states.load(user.telegram_user_id)
+                if (
+                    state.state is not BotState.NOT_STARTED
+                    and user.manual_top_up is not None
+                ):
+                    try:
+                        await self._telegram.configure_top_up_menu(user)
+                    except Exception as error:
+                        self._logger.warning(
+                            "top_up_menu_configuration_failed telegram_user_id=%s error=%s",
+                            user.telegram_user_id,
+                            error,
+                        )
                 continue
             try:
                 can_reach_user = await self._telegram.can_reach_private_chat(
@@ -125,6 +191,8 @@ class BotDispatcher:
                 continue
             if can_reach_user:
                 await self.fsm.start(user)
+                if user.manual_top_up is not None:
+                    await self._telegram.configure_top_up_menu(user)
                 recovered_user_ids.append(user.telegram_user_id)
                 self._logger.info(
                     "missing_user_state_recovered telegram_user_id=%s state=%s",

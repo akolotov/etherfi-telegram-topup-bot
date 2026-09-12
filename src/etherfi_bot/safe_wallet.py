@@ -242,10 +242,16 @@ async def propose_safe_tx(
         proposer_private_key,
         origin,
     )
-    await client.post(
-        f"/api/v2/safes/{checksum(safe_address)}/multisig-transactions/",
-        payload,
-    )
+    try:
+        await client.post(
+            f"/api/v2/safes/{checksum(safe_address)}/multisig-transactions/",
+            payload,
+        )
+    except SafeTxServiceError:
+        # A timeout or duplicate response can happen after the service accepted
+        # the deterministic Safe transaction. Reconcile by hash before failing.
+        if await get_raw_multisig_tx(client, safe_tx_hash) is None:
+            raise
     return safe_tx_hash
 
 

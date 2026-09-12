@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>Top Up</title>
+  <link rel="stylesheet" href="app.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header><span class="mark">e</span><h1>Top Up</h1><p>Add USDC to your card balance</p></header>
+    <section class="balances" aria-label="Current balances">
+      <article><span>Card balance</span><strong id="target-balance">—</strong><small>Optimism</small></article>
+      <article><span>Available on Safe</span><strong id="safe-balance">—</strong><small>Arbitrum · aUSDC</small></article>
+    </section>
+    <section id="form" hidden>
+      <h2>Choose amount</h2>
+      <div id="presets" class="presets"></div>
+      <label for="amount">Custom amount</label>
+      <div class="input"><input id="amount" inputmode="decimal" autocomplete="off" placeholder="0.00"><span>USDC</span></div>
+      <p id="limit" class="hint"></p>
+      <p id="error" class="error" role="alert"></p>
+      <button id="continue" type="button" disabled>Continue in Telegram</button>
+      <p class="note">You will confirm the Safe transaction request in the chat.</p>
+    </section>
+    <p id="loading" class="status">Refreshing balances…</p>
+  </main>
+</body>
+</html>

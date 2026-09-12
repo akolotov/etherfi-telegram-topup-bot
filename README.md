@@ -8,6 +8,12 @@ The Safe Wallet owns the funds on AAVEv3. When the target account balance is
 low, the bot proposes a Safe transaction that withdraws funds from AAVEv3 and
 sends them directly to the target account.
 
+Users with `manual_top_up` configured can also open the Telegram menu button
+at any time, choose a preset or custom amount in the Mini App, and confirm the
+request back in the chat. The Mini App refreshes both the Optimism card balance
+and the Safe's Arbitrum aUSDC balance. It never creates a transaction without
+the separate, one-time Telegram confirmation.
+
 ```mermaid
 sequenceDiagram
     participant Bot as Telegram bot
@@ -98,6 +104,8 @@ Useful environment overrides:
 - `CONFIG_PATH`: path to the JSON bot config, default `data/config.json`
 - `STATE_DIR`: persisted FSM state directory, default `data/user_states`
 - `INGRESS_MODE`: `polling` (development default) or `webhook`
+- `MINI_APP_PUBLIC_URL`: HTTPS Mini App URL under the gateway's
+  `/apps/<docker-alias>/...` route; required when any user has `manual_top_up`
 - `LOG_LEVEL`: runtime log level, default `INFO`
 - `BLOCKSCOUT_PRO_API_KEY`: Blockscout PRO API key, required for balance checks
 - `BLOCKSCOUT_MAX_ATTEMPTS`: total attempts for a transient Blockscout request, default `3`
@@ -132,6 +140,7 @@ to `WEBHOOK_SECRET_TOKEN`:
 WEBHOOK_PUBLIC_BASE_URL=https://<funnel-hostname>.<tailnet>.ts.net
 WEBHOOK_DOCKER_ALIAS=<docker-alias>
 WEBHOOK_PATH=/hooks/<docker-alias>/<webhook-endpoint>
+MINI_APP_PUBLIC_URL=https://<funnel-hostname>.<tailnet>.ts.net/apps/<docker-alias>/topup
 WEBHOOK_SECRET_TOKEN=<new-random-secret>
 ```
 

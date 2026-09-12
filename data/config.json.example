@@ -11,7 +11,11 @@
         "safe_account": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "safe_proposer_key_file": "/run/secrets/safe_proposer_private_key_1001",
         "low_balance_notification_limit": 3,
-        "low_balance_notification_cooldown_seconds": 300
+        "low_balance_notification_cooldown_seconds": 300,
+        "manual_top_up": {
+          "preset_amounts": ["250", "500", "1000"],
+          "max_custom_amount": "5000"
+        }
       },
       {
         "telegram_user_id": 1002,
