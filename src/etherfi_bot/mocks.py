@@ -50,6 +50,7 @@ class MockTelegramGateway:
         self.forbidden_operations_by_user: dict[int, set[str]] = {}
         self._next_message_id = 1
         self.configured_top_up_menus: list[int] = []
+        self.reset_top_up_menus: list[int] = []
 
     async def send_low_balance_prompt(self, user: UserConfig, balance: Decimal) -> int:
         return self._send_user(
@@ -129,6 +130,10 @@ class MockTelegramGateway:
     async def configure_top_up_menu(self, user: UserConfig) -> None:
         self._raise_if_forbidden(user.telegram_user_id, "configure_top_up_menu")
         self.configured_top_up_menus.append(user.telegram_user_id)
+
+    async def reset_top_up_menu(self, user: UserConfig) -> None:
+        self._raise_if_forbidden(user.telegram_user_id, "reset_top_up_menu")
+        self.reset_top_up_menus.append(user.telegram_user_id)
 
     async def send_manual_top_up_launcher(self, user: UserConfig) -> int:
         return self._send_user(

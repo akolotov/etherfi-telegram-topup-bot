@@ -6,6 +6,7 @@ from telegram import (
     Bot,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    MenuButtonDefault,
     MenuButtonWebApp,
     WebAppInfo,
 )
@@ -110,6 +111,15 @@ class TelegramBotGateway:
             await self._bot.set_chat_menu_button(
                 chat_id=user.telegram_user_id,
                 menu_button=MenuButtonWebApp(text="Top Up", web_app=WebAppInfo(url=url)),
+            )
+        except Forbidden as error:
+            raise TelegramForbiddenError(str(error)) from error
+
+    async def reset_top_up_menu(self, user: UserConfig) -> None:
+        try:
+            await self._bot.set_chat_menu_button(
+                chat_id=user.telegram_user_id,
+                menu_button=MenuButtonDefault(),
             )
         except Forbidden as error:
             raise TelegramForbiddenError(str(error)) from error

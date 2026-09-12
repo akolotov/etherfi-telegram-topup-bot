@@ -62,8 +62,7 @@ class BotDispatcher:
             self._log_unknown_user("start", telegram_user_id)
             return None
         state = await self.fsm.start(user)
-        if user.manual_top_up is not None:
-            await self._telegram.configure_top_up_menu(user)
+        await self._reconcile_top_up_menu(user)
         return state
 
     async def manual_top_up_launcher(self, telegram_user_id: int) -> int | None:
@@ -164,18 +163,8 @@ class BotDispatcher:
         for user in self.config.users_by_telegram_id.values():
             if user.telegram_user_id in persisted_user_ids:
                 state = self._states.load(user.telegram_user_id)
-                if (
-                    state.state is not BotState.NOT_STARTED
-                    and user.manual_top_up is not None
-                ):
-                    try:
-                        await self._telegram.configure_top_up_menu(user)
-                    except Exception as error:
-                        self._logger.warning(
-                            "top_up_menu_configuration_failed telegram_user_id=%s error=%s",
-                            user.telegram_user_id,
-                            error,
-                        )
+                if state.state is not BotState.NOT_STARTED:
+                    await self._reconcile_top_up_menu(user)
                 continue
             try:
                 can_reach_user = await self._telegram.can_reach_private_chat(
@@ -191,8 +180,7 @@ class BotDispatcher:
                 continue
             if can_reach_user:
                 await self.fsm.start(user)
-                if user.manual_top_up is not None:
-                    await self._telegram.configure_top_up_menu(user)
+                await self._reconcile_top_up_menu(user)
                 recovered_user_ids.append(user.telegram_user_id)
                 self._logger.info(
                     "missing_user_state_recovered telegram_user_id=%s state=%s",
@@ -206,6 +194,23 @@ class BotDispatcher:
                     user.telegram_user_id,
                 )
         return recovered_user_ids
+
+    async def _reconcile_top_up_menu(self, user: UserConfig) -> None:
+        action = "configure" if user.manual_top_up is not None else "reset"
+        try:
+            if user.manual_top_up is not None:
+                await self._telegram.configure_top_up_menu(user)
+            else:
+                await self._telegram.reset_top_up_menu(user)
+        except Exception as error:
+            self._logger.warning(
+                "top_up_menu_reconciliation_failed telegram_user_id=%s "
+                "action=%s error_type=%s error=%s",
+                user.telegram_user_id,
+                action,
+                type(error).__name__,
+                error,
+            )
 
     async def restart(self, run_due_ticks: bool = True) -> list[int]:
         due_user_ids = self.due_user_ids()

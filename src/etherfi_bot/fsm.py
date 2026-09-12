@@ -240,8 +240,7 @@ class FsmService:
             state = self._states.load(user.telegram_user_id)
             self._require_manual_top_up(user, state)
             self._validate_manual_amount(user, amount)
-            if await self._expire_manual_top_up(user, state, force=True):
-                self._states.save(state)
+            await self._expire_manual_top_up(user, state, force=True)
             try:
                 safe_balance = await self._read_safe_balance(user)
             except ManualTopUpError:
@@ -276,7 +275,6 @@ class FsmService:
             if not self._is_manual_callback(state, message_id, request_id):
                 return state
             if await self._expire_manual_top_up(user, state):
-                self._states.save(state)
                 return state
             amount = state.manual_top_up_amount
             assert amount is not None
@@ -874,14 +872,23 @@ class FsmService:
         expires_at = state.manual_top_up_expires_at
         if not force and expires_at is not None and self._clock.now() < expires_at:
             return False
-        if state.manual_top_up_message_id is not None:
+        message_id = state.manual_top_up_message_id
+        state.clear_manual_top_up()
+        self._states.save(state)
+        if message_id is not None:
             try:
                 await self._telegram.remove_buttons(
-                    user.telegram_user_id, state.manual_top_up_message_id
+                    user.telegram_user_id, message_id
                 )
-            except TelegramForbiddenError:
-                pass
-        state.clear_manual_top_up()
+            except Exception as error:
+                self._log_user_event(
+                    logging.WARNING,
+                    "manual_top_up_button_cleanup_failed",
+                    user,
+                    message_id=message_id,
+                    error_type=type(error).__name__,
+                    error=error,
+                )
         return True
 
     async def _send_first_low_prompt(

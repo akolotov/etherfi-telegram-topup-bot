@@ -43,6 +43,9 @@ class TelegramGateway(Protocol):
     async def configure_top_up_menu(self, user: UserConfig) -> None:
         """Configure the private-chat menu button for manual top-up."""
 
+    async def reset_top_up_menu(self, user: UserConfig) -> None:
+        """Restore the private-chat menu button to the bot default."""
+
     async def send_manual_top_up_launcher(self, user: UserConfig) -> int:
         """Send a fallback button that opens the manual top-up Mini App."""
 

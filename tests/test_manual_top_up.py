@@ -7,8 +7,9 @@ from etherfi_bot.domain import (
     ManualTopUpConfig,
     ManualTopUpError,
     TelegramForbiddenError,
+    UserState,
 )
-from tests.conftest import make_user
+from tests.conftest import make_dispatcher, make_user
 
 
 def configured_user():
@@ -112,6 +113,53 @@ def test_expired_confirmation_is_inert(harness_factory) -> None:
 
     assert state.manual_top_up_request_id is None
     assert harness.safe.created_txs == []
+
+
+def test_expired_confirmation_cleanup_failure_does_not_block_monitoring(
+    harness_factory,
+) -> None:
+    harness = harness_factory(configured_user())
+    harness.fsm.start(harness.user)
+    harness.safe_balances.set_balance(harness.user.safe_account, "1000")
+    harness.fsm.prepare_manual_top_up(harness.user, Decimal("500"))
+    harness.clock.advance(601)
+
+    async def fail_to_remove_buttons(_telegram_user_id, _message_id) -> None:
+        raise RuntimeError("message is already gone")
+
+    harness.telegram.remove_buttons = fail_to_remove_buttons
+
+    state = harness.fsm.balance_tick(harness.user)
+
+    assert state.state is BotState.LOW_PROMPT
+    assert state.manual_top_up_request_id is None
+    assert harness.states.load(harness.user.telegram_user_id).manual_top_up_request_id is None
+
+
+def test_recovery_continues_when_top_up_menu_configuration_fails(tmp_path) -> None:
+    user = configured_user()
+    dispatcher, states, telegram, *_ = make_dispatcher(tmp_path, [user])
+    telegram.forbid_operation(user.telegram_user_id, "configure_top_up_menu")
+
+    recovered_user_ids = dispatcher.recover_missing_user_states()
+
+    assert recovered_user_ids == [user.telegram_user_id]
+    assert states.load(user.telegram_user_id).state is BotState.MONITORING
+
+
+def test_recovery_resets_menu_when_manual_top_up_is_disabled(tmp_path) -> None:
+    user = make_user()
+    dispatcher, states, telegram, *_ = make_dispatcher(tmp_path, [user])
+    states.save(
+        UserState(
+            telegram_user_id=user.telegram_user_id,
+            state=BotState.MONITORING,
+        )
+    )
+
+    dispatcher.recover_missing_user_states()
+
+    assert telegram.reset_top_up_menus == [user.telegram_user_id]
 
 
 @pytest.mark.parametrize("amount", ["0", "-1", "5000.000001", "5001", "NaN"])
