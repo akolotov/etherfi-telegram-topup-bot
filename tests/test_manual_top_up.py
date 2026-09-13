@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -72,6 +73,24 @@ def test_confirm_rereads_safe_balance_and_refuses_if_it_dropped(harness_factory)
     assert state.state is BotState.MONITORING
     assert harness.safe.created_txs == []
     assert harness.telegram.messages[-1].kind == "insufficient_safe_balance"
+
+
+def test_prepare_safe_balance_failure_preserves_low_prompt(harness_factory) -> None:
+    harness = harness_factory(configured_user())
+    harness.fsm.start(harness.user)
+    harness.balances.set_balance(harness.user.target_account, "0")
+    low_state = harness.fsm.balance_tick(harness.user)
+    low_message_id = low_state.current_message_id
+    harness.safe_balances.fail_accounts.add(harness.user.safe_account)
+
+    with pytest.raises(ManualTopUpError, match="Could not refresh the Safe balance"):
+        harness.fsm.prepare_manual_top_up(harness.user, Decimal("500"))
+
+    persisted = harness.states.load(harness.user.telegram_user_id)
+    assert persisted.state is BotState.LOW_PROMPT
+    assert persisted.current_message_id == low_message_id
+    assert persisted.notification_count == 1
+    assert harness.telegram.removed_buttons == []
 
 
 def test_created_safe_tx_is_persisted_if_telegram_notification_fails(
@@ -160,6 +179,37 @@ def test_recovery_resets_menu_when_manual_top_up_is_disabled(tmp_path) -> None:
     dispatcher.recover_missing_user_states()
 
     assert telegram.reset_top_up_menus == [user.telegram_user_id]
+
+
+def test_startup_recovery_discards_manual_top_up_confirmation(tmp_path) -> None:
+    user = configured_user()
+    dispatcher, states, telegram, _balances, safe, _private_keys, clock = (
+        make_dispatcher(tmp_path, [user])
+    )
+    states.save(
+        UserState(
+            telegram_user_id=user.telegram_user_id,
+            state=BotState.MONITORING,
+            manual_top_up_request_id="request-before-restart",
+            manual_top_up_amount=Decimal("500"),
+            manual_top_up_expires_at=clock.now() + timedelta(minutes=10),
+            manual_top_up_message_id=42,
+        )
+    )
+
+    dispatcher.recover_missing_user_states()
+    state = dispatcher.callback_manual_top_up_confirm(
+        user.telegram_user_id,
+        42,
+        "request-before-restart",
+    )
+
+    assert state is not None
+    assert state.manual_top_up_request_id is None
+    assert state.manual_top_up_amount is None
+    assert state.manual_top_up_message_id is None
+    assert telegram.removed_buttons == [(user.telegram_user_id, 42)]
+    assert safe.created_txs == []
 
 
 @pytest.mark.parametrize("amount", ["0", "-1", "5000.000001", "5001", "NaN"])

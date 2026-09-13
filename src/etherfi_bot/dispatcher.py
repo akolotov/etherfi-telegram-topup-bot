@@ -158,6 +158,14 @@ class BotDispatcher:
         return await self.fsm.ignore_event(user)
 
     async def recover_missing_user_states(self) -> list[int]:
+        discarded_confirmation_user_ids = (
+            await self._discard_manual_top_up_confirmations()
+        )
+        if discarded_confirmation_user_ids:
+            self._logger.info(
+                "startup_manual_top_up_confirmations_discarded count=%s",
+                len(discarded_confirmation_user_ids),
+            )
         persisted_user_ids = {state.telegram_user_id for state in self._states.list_states()}
         recovered_user_ids: list[int] = []
         for user in self.config.users_by_telegram_id.values():
@@ -194,6 +202,16 @@ class BotDispatcher:
                     user.telegram_user_id,
                 )
         return recovered_user_ids
+
+    async def _discard_manual_top_up_confirmations(self) -> list[int]:
+        telegram_user_ids = [
+            state.telegram_user_id
+            for state in self._states.list_states()
+            if state.manual_top_up_request_id is not None
+        ]
+        for telegram_user_id in telegram_user_ids:
+            await self.fsm.discard_manual_top_up_confirmation(telegram_user_id)
+        return telegram_user_ids
 
     async def _reconcile_top_up_menu(self, user: UserConfig) -> None:
         action = "configure" if user.manual_top_up is not None else "reset"

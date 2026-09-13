@@ -214,11 +214,19 @@ class FsmService:
         async with self._user_lock(user.telegram_user_id):
             return self._states.load(user.telegram_user_id)
 
+    async def discard_manual_top_up_confirmation(
+        self, telegram_user_id: int
+    ) -> UserState:
+        async with self._user_lock(telegram_user_id):
+            state = self._states.load(telegram_user_id)
+            await self._expire_manual_top_up(state, force=True)
+            return state
+
     async def manual_top_up_context(self, user: UserConfig) -> ManualTopUpContext:
         async with self._user_lock(user.telegram_user_id):
             state = self._states.load(user.telegram_user_id)
             self._require_manual_top_up(user, state)
-            await self._expire_manual_top_up(user, state)
+            await self._expire_manual_top_up(state)
             target_balance, safe_balance = await self._read_manual_balances(user)
             assert user.manual_top_up is not None
             self._states.save(state)
@@ -240,13 +248,8 @@ class FsmService:
             state = self._states.load(user.telegram_user_id)
             self._require_manual_top_up(user, state)
             self._validate_manual_amount(user, amount)
-            await self._expire_manual_top_up(user, state, force=True)
-            try:
-                safe_balance = await self._read_safe_balance(user)
-            except ManualTopUpError:
-                state.state = BotState.MONITORING
-                self._states.save(state)
-                raise
+            await self._expire_manual_top_up(state, force=True)
+            safe_balance = await self._read_safe_balance(user)
             if amount > safe_balance:
                 raise ManualTopUpError("The Safe balance is lower than this amount")
             if state.current_message_id is not None:
@@ -274,7 +277,7 @@ class FsmService:
             state = self._states.load(user.telegram_user_id)
             if not self._is_manual_callback(state, message_id, request_id):
                 return state
-            if await self._expire_manual_top_up(user, state):
+            if await self._expire_manual_top_up(state):
                 return state
             amount = state.manual_top_up_amount
             assert amount is not None
@@ -426,7 +429,7 @@ class FsmService:
         handled_at: datetime,
     ) -> None:
         if state.manual_top_up_request_id is not None:
-            if not await self._expire_manual_top_up(user, state):
+            if not await self._expire_manual_top_up(state):
                 self._log_user_event(
                     logging.DEBUG,
                     "balance_tick_noop",
@@ -865,7 +868,7 @@ class FsmService:
         )
 
     async def _expire_manual_top_up(
-        self, user: UserConfig, state: UserState, *, force: bool = False
+        self, state: UserState, *, force: bool = False
     ) -> bool:
         if state.manual_top_up_request_id is None:
             return False
@@ -878,16 +881,16 @@ class FsmService:
         if message_id is not None:
             try:
                 await self._telegram.remove_buttons(
-                    user.telegram_user_id, message_id
+                    state.telegram_user_id, message_id
                 )
             except Exception as error:
-                self._log_user_event(
-                    logging.WARNING,
-                    "manual_top_up_button_cleanup_failed",
-                    user,
-                    message_id=message_id,
-                    error_type=type(error).__name__,
-                    error=error,
+                self._logger.warning(
+                    "manual_top_up_button_cleanup_failed telegram_user_id=%s "
+                    "message_id=%s error_type=%s error=%s",
+                    state.telegram_user_id,
+                    message_id,
+                    type(error).__name__,
+                    error,
                 )
         return True
 
