@@ -120,6 +120,59 @@ def test_context_endpoint_rejects_missing_telegram_authorization() -> None:
     assert response.status_code == 401
 
 
+def test_slashless_mini_app_url_redirects_to_canonical_page() -> None:
+    application = SimpleNamespace(bot=object(), update_queue=None)
+    app = create_mini_app(
+        application=application,
+        dispatcher=object(),
+        bot_token=BOT_TOKEN,
+        webhook_path="/hooks/test/webhook",
+        webhook_secret_token="webhook-secret",
+        mini_app_public_url="https://example.test/apps/bot/topup",
+    )
+
+    with TestClient(app, follow_redirects=False) as client:
+        response = client.get("/apps/bot/topup")
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/apps/bot/topup/"
+
+
+def test_context_endpoint_serializes_decimal_values_without_exponents() -> None:
+    class Dispatcher:
+        async def manual_top_up_context(self, _user_id):
+            return ManualTopUpContext(
+                target_balance=Decimal("1E+3"),
+                safe_balance=Decimal("2E+3"),
+                maximum_amount=Decimal("2E+3"),
+                preset_amounts=(Decimal("1E+3"),),
+                target_account="0x1111111111111111111111111111111111111111",
+                safe_account="0x2222222222222222222222222222222222222222",
+            )
+
+    application = SimpleNamespace(bot=object(), update_queue=None)
+    app = create_mini_app(
+        application=application,
+        dispatcher=Dispatcher(),
+        bot_token=BOT_TOKEN,
+        webhook_path="/hooks/test/webhook",
+        webhook_secret_token="webhook-secret",
+        mini_app_public_url="https://example.test/apps/bot/topup",
+    )
+    auth = signed_init_data(1001, int(time.time()))
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/apps/bot/topup/api/context",
+            headers={"Authorization": f"tma {auth}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["target_balance"] == "1000"
+    assert response.json()["maximum_amount"] == "2000"
+    assert response.json()["preset_amounts"] == ["1000"]
+
+
 def test_webhook_accepts_valid_update_larger_than_mini_app_body_limit() -> None:
     class RecordingQueue:
         def __init__(self) -> None:

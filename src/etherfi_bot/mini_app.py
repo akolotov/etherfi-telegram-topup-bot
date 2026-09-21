@@ -10,7 +10,7 @@ from urllib.parse import parse_qsl, urlsplit
 
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, Response
+from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from starlette.routing import Route
 from telegram import Update
 
@@ -78,6 +78,9 @@ def create_mini_app(
     async def page(_request: Request) -> Response:
         return _file("index.html", "text/html")
 
+    async def redirect_to_page(_request: Request) -> Response:
+        return RedirectResponse(f"{mini_path}/")
+
     async def css(_request: Request) -> Response:
         return _file("app.css", "text/css")
 
@@ -91,10 +94,12 @@ def create_mini_app(
             if value is None:
                 raise ManualTopUpError("Manual top-up is not available")
             return _json({
-                "target_balance": str(value.target_balance),
-                "safe_balance": str(value.safe_balance),
-                "maximum_amount": str(value.maximum_amount),
-                "preset_amounts": [str(item) for item in value.preset_amounts],
+                "target_balance": _format_decimal(value.target_balance),
+                "safe_balance": _format_decimal(value.safe_balance),
+                "maximum_amount": _format_decimal(value.maximum_amount),
+                "preset_amounts": [
+                    _format_decimal(item) for item in value.preset_amounts
+                ],
                 "target_account": value.target_account,
                 "safe_account": value.safe_account,
             })
@@ -128,7 +133,7 @@ def create_mini_app(
         return Response(status_code=200)
 
     routes = [
-        Route(mini_path, page),
+        Route(mini_path, redirect_to_page),
         Route(f"{mini_path}/", page),
         Route(f"{mini_path}/app.css", css),
         Route(f"{mini_path}/app.js", javascript),
@@ -168,6 +173,10 @@ def _file(name: str, media_type: str) -> FileResponse:
 
 def _json(value: dict[str, object], status_code: int = 200) -> JSONResponse:
     return JSONResponse(value, status_code=status_code, headers=_security_headers())
+
+
+def _format_decimal(value: Decimal) -> str:
+    return format(value, "f")
 
 
 def _error(error: Exception) -> JSONResponse:

@@ -52,7 +52,7 @@
     try {
       await request("prepare", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ amount: el("amount").value.replace(",", ".") }) });
       tg?.HapticFeedback?.notificationOccurred("success"); tg?.close();
-    } catch (error) { el("error").textContent = error.message; validate(); }
+    } catch (error) { validate(); el("error").textContent = error.message; }
   });
   load();
 })();
