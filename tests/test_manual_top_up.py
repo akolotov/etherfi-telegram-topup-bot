@@ -39,6 +39,7 @@ def test_context_reads_fresh_target_and_safe_balances(harness_factory) -> None:
 def test_custom_amount_is_confirmed_in_chat_then_created_exactly(harness_factory) -> None:
     harness = harness_factory(configured_user())
     harness.fsm.start(harness.user)
+    harness.balances.set_balance(harness.user.target_account, "15")
     harness.safe_balances.set_balance(harness.user.safe_account, "4000")
 
     prepared = harness.fsm.prepare_manual_top_up(harness.user, Decimal("1250.50"))
@@ -52,9 +53,69 @@ def test_custom_amount_is_confirmed_in_chat_then_created_exactly(harness_factory
         prepared.manual_top_up_request_id,
     )
 
-    assert confirmed.state is BotState.SAFE_TX_PENDING
+    assert confirmed.state is BotState.MONITORING
+    assert confirmed.pending_safe_tx_id is None
     assert harness.safe.created_txs[0].amount == Decimal("1250.50")
     assert confirmed.manual_top_up_request_id is None
+
+    ticked = harness.fsm.balance_tick(harness.user)
+
+    assert ticked.state is BotState.MONITORING
+    assert ticked.pending_safe_tx_id is None
+
+
+def test_repeated_manual_top_up_creates_another_safe_proposal(harness_factory) -> None:
+    harness = harness_factory(configured_user())
+    harness.fsm.start(harness.user)
+    harness.safe_balances.set_balance(harness.user.safe_account, "4000")
+
+    first = harness.fsm.prepare_manual_top_up(harness.user, Decimal("500"))
+    harness.fsm.callback_manual_top_up_confirm(
+        harness.user,
+        first.manual_top_up_message_id,
+        first.manual_top_up_request_id,
+    )
+    second = harness.fsm.prepare_manual_top_up(harness.user, Decimal("750"))
+    state = harness.fsm.callback_manual_top_up_confirm(
+        harness.user,
+        second.manual_top_up_message_id,
+        second.manual_top_up_request_id,
+    )
+
+    assert state.state is BotState.MONITORING
+    assert state.pending_safe_tx_id is None
+    assert [tx.amount for tx in harness.safe.created_txs] == [
+        Decimal("500"),
+        Decimal("750"),
+    ]
+
+
+def test_low_balance_after_manual_top_up_can_create_automatic_proposal(
+    harness_factory,
+) -> None:
+    harness = harness_factory(configured_user())
+    harness.fsm.start(harness.user)
+    harness.balances.set_balance(harness.user.target_account, "15")
+    harness.safe_balances.set_balance(harness.user.safe_account, "4000")
+    prepared = harness.fsm.prepare_manual_top_up(harness.user, Decimal("500"))
+    harness.fsm.callback_manual_top_up_confirm(
+        harness.user,
+        prepared.manual_top_up_message_id,
+        prepared.manual_top_up_request_id,
+    )
+
+    harness.balances.set_balance(harness.user.target_account, "1")
+    low_state = harness.fsm.balance_tick(harness.user)
+    automatic_state = harness.fsm.callback_top_up(
+        harness.user, low_state.current_message_id
+    )
+
+    assert automatic_state.state is BotState.SAFE_TX_PENDING
+    assert automatic_state.pending_safe_tx_id is not None
+    assert [tx.amount for tx in harness.safe.created_txs] == [
+        Decimal("500"),
+        Decimal("19"),
+    ]
 
 
 def test_confirm_rereads_safe_balance_and_refuses_if_it_dropped(harness_factory) -> None:
@@ -93,7 +154,7 @@ def test_prepare_safe_balance_failure_preserves_low_prompt(harness_factory) -> N
     assert harness.telegram.removed_buttons == []
 
 
-def test_created_safe_tx_is_persisted_if_telegram_notification_fails(
+def test_consumed_confirmation_stays_cleared_if_telegram_notification_fails(
     harness_factory,
 ) -> None:
     harness = harness_factory(configured_user())
@@ -112,8 +173,8 @@ def test_created_safe_tx_is_persisted_if_telegram_notification_fails(
         )
 
     persisted = harness.states.load(harness.user.telegram_user_id)
-    assert persisted.state is BotState.SAFE_TX_PENDING
-    assert persisted.pending_safe_tx_id == harness.safe.created_txs[0].safe_tx_id
+    assert persisted.state is BotState.MONITORING
+    assert persisted.pending_safe_tx_id is None
     assert persisted.manual_top_up_request_id is None
 
 

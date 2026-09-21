@@ -9,9 +9,15 @@ from urllib.parse import urlencode
 import pytest
 
 from starlette.testclient import TestClient
+from telegram import Bot
 
 from etherfi_bot.domain import ManualTopUpContext
-from etherfi_bot.mini_app import InitDataError, create_mini_app, validate_init_data
+from etherfi_bot.mini_app import (
+    MAX_BODY_BYTES,
+    InitDataError,
+    create_mini_app,
+    validate_init_data,
+)
 
 
 BOT_TOKEN = "123456:test-token"
@@ -112,3 +118,57 @@ def test_context_endpoint_rejects_missing_telegram_authorization() -> None:
     with TestClient(app) as client:
         response = client.get("/apps/bot/topup/api/context")
     assert response.status_code == 401
+
+
+def test_webhook_accepts_valid_update_larger_than_mini_app_body_limit() -> None:
+    class RecordingQueue:
+        def __init__(self) -> None:
+            self.items = []
+
+        async def put(self, item) -> None:
+            self.items.append(item)
+
+    queue = RecordingQueue()
+    application = SimpleNamespace(bot=Bot(BOT_TOKEN), update_queue=queue)
+    app = create_mini_app(
+        application=application,
+        dispatcher=object(),
+        bot_token=BOT_TOKEN,
+        webhook_path="/hooks/test/webhook",
+        webhook_secret_token="webhook-secret",
+        mini_app_public_url="https://example.test/apps/bot/topup",
+    )
+    message = {
+        "message_id": 2,
+        "date": 1_700_000_000,
+        "chat": {"id": 1001, "type": "private", "first_name": "Test"},
+        "from": {"id": 1001, "is_bot": False, "first_name": "Test"},
+        "text": "x" * 4096,
+        "entities": [
+            {"type": "bold", "offset": offset, "length": 1}
+            for offset in range(100)
+        ],
+        "reply_to_message": {
+            "message_id": 1,
+            "date": 1_699_999_999,
+            "chat": {"id": 1001, "type": "private", "first_name": "Test"},
+            "from": {"id": 1001, "is_bot": False, "first_name": "Test"},
+            "text": "y" * 4096,
+            "entities": [
+                {"type": "italic", "offset": offset, "length": 1}
+                for offset in range(100)
+            ],
+        },
+    }
+    payload = {"update_id": 123, "message": message}
+    assert len(json.dumps(payload).encode()) > MAX_BODY_BYTES
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/hooks/test/webhook",
+            json=payload,
+            headers={"X-Telegram-Bot-Api-Secret-Token": "webhook-secret"},
+        )
+
+    assert response.status_code == 200
+    assert [item.update_id for item in queue.items] == [123]

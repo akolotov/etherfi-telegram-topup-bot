@@ -293,7 +293,9 @@ class FsmService:
                 await self._telegram.send_insufficient_safe_balance(user)
                 state.state = BotState.MONITORING
             else:
-                await self._create_safe_tx(user, state, amount, message_id=message_id)
+                await self._create_manual_safe_tx(
+                    user, state, amount, message_id=message_id
+                )
             self._states.save(state)
             return state
 
@@ -772,7 +774,7 @@ class FsmService:
         state.tx_reminder_until = self._clock.now() + self._cooldown_delta(user)
         state.state = BotState.SAFE_TX_PENDING
 
-    async def _create_safe_tx(
+    async def _create_manual_safe_tx(
         self,
         user: UserConfig,
         state: UserState,
@@ -807,11 +809,14 @@ class FsmService:
                 await self._telegram.send_insufficient_safe_balance(user)
             state.state = BotState.MONITORING
             return
-        state.pending_safe_tx_id = safe_tx_id
-        state.tx_reminder_until = self._clock.now() + self._cooldown_delta(user)
-        state.state = BotState.SAFE_TX_PENDING
-        # Persist before user notification: the Safe proposal already exists,
-        # even if Telegram becomes unavailable immediately afterwards.
+        # Automatic top-up uses SAFE_TX_PENDING to suppress duplicate low-balance
+        # actions while its proposal awaits signatures. A manual top-up is
+        # intentionally different: it must not pause balance monitoring or block
+        # the user from deliberately creating another proposal in Safe.
+        self._clear_tx_context(state)
+        state.state = BotState.MONITORING
+        # Persist the consumed confirmation before notifying the user: the Safe
+        # proposal already exists even if Telegram becomes unavailable now.
         self._states.save(state)
         await self._notify_admin(
             f"Tx created in safe {user.safe_account} to top up {user.target_account}"
@@ -823,6 +828,9 @@ class FsmService:
             raise ManualTopUpError("Manual top-up is not configured")
         if state.state is BotState.NOT_STARTED:
             raise ManualTopUpError("Start the bot before using manual top-up")
+        # SAFE_TX_PENDING is reserved for the automatic low-balance flow. Manual
+        # proposals themselves stay in MONITORING and therefore do not hit this
+        # guard when the user intentionally creates another Safe proposal.
         if state.state is BotState.SAFE_TX_PENDING:
             raise ManualTopUpError("A Safe transaction is already pending")
         if self._safe_balances is None:

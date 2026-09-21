@@ -118,7 +118,9 @@ def create_mini_app(
         if not hmac.compare_digest(secret, webhook_secret_token):
             return Response(status_code=403)
         try:
-            payload = await _json_body(request)
+            # Telegram Update objects can legitimately be larger than the small
+            # request bodies accepted from the Mini App API.
+            payload = await _json_body(request, max_body_bytes=None)
             update = Update.de_json(payload, application.bot)
             await application.update_queue.put(update)
         except (ValueError, json.JSONDecodeError):
@@ -144,9 +146,11 @@ def _authorize(request: Request, bot_token: str) -> int:
     return validate_init_data(raw, bot_token)
 
 
-async def _json_body(request: Request) -> dict[str, object]:
+async def _json_body(
+    request: Request, *, max_body_bytes: int | None = MAX_BODY_BYTES
+) -> dict[str, object]:
     body = await request.body()
-    if len(body) > MAX_BODY_BYTES:
+    if max_body_bytes is not None and len(body) > max_body_bytes:
         raise ValueError("Request is too large")
     value = json.loads(body)
     if not isinstance(value, dict):
