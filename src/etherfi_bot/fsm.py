@@ -477,6 +477,9 @@ class FsmService:
         balance: Decimal,
         handled_at: datetime,
     ) -> None:
+        balance_ok = self._balance_ok(user, balance)
+        if balance_ok:
+            state.low_balance_snoozed_until = None
         if state.manual_top_up_request_id is not None:
             if not await self._expire_manual_top_up(state):
                 self._log_user_event(
@@ -488,13 +491,12 @@ class FsmService:
                     balance=balance,
                 )
                 return
-        if self._balance_ok(user, balance):
+        if balance_ok:
             previous_state = state.state
             previous_message_id = state.current_message_id
             if state.state in {BotState.LOW_PROMPT, BotState.LOW_COOLDOWN}:
                 await self._remove_current_buttons(user, state)
             self._clear_low_context(state)
-            state.low_balance_snoozed_until = None
             state.state = BotState.MONITORING
             if previous_state is BotState.MONITORING:
                 self._log_user_event(

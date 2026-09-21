@@ -118,6 +118,34 @@ def test_low_balance_after_manual_top_up_can_create_automatic_proposal(
     ]
 
 
+def test_balance_recovery_clears_snooze_during_manual_confirmation(
+    harness_factory,
+) -> None:
+    harness = harness_factory(configured_user())
+    harness.fsm.start(harness.user)
+    harness.balances.set_balance(harness.user.target_account, "1")
+    prompt = harness.fsm.balance_tick(harness.user)
+    harness.fsm.callback_ignore_for_24h(harness.user, prompt.current_message_id)
+    harness.safe_balances.set_balance(harness.user.safe_account, "1000")
+    prepared = harness.fsm.prepare_manual_top_up(harness.user, Decimal("500"))
+
+    harness.balances.set_balance(harness.user.target_account, "20")
+    recovered = harness.fsm.balance_tick(harness.user)
+
+    assert recovered.low_balance_snoozed_until is None
+
+    harness.fsm.callback_manual_top_up_cancel(
+        harness.user,
+        prepared.manual_top_up_message_id,
+        prepared.manual_top_up_request_id,
+    )
+    harness.balances.set_balance(harness.user.target_account, "1")
+    low_again = harness.fsm.balance_tick(harness.user)
+
+    assert low_again.state is BotState.LOW_PROMPT
+    assert low_again.current_message_id is not None
+
+
 def test_confirm_rereads_safe_balance_and_refuses_if_it_dropped(harness_factory) -> None:
     harness = harness_factory(configured_user())
     harness.fsm.start(harness.user)
