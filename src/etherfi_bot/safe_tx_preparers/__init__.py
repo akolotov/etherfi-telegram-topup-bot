@@ -43,6 +43,7 @@ from etherfi_bot.safe_tx_preparers.aave import (  # noqa: E402
     ARBITRUM_AAVE_NATIVE_USDC_ATOKEN,
     ARBITRUM_NATIVE_USDC,
     USDC_DECIMALS,
+    AaveSafeBalanceProvider,
     AaveV3NativeUsdcWithdrawPreparer,
 )
 
@@ -51,6 +52,7 @@ __all__ = [
     "AAVE_V3_ARBITRUM_POOL",
     "ARBITRUM_AAVE_NATIVE_USDC_ATOKEN",
     "ARBITRUM_NATIVE_USDC",
+    "AaveSafeBalanceProvider",
     "AaveV3NativeUsdcWithdrawPreparer",
     "SafeTxCall",
     "SafeTxDataPreparer",

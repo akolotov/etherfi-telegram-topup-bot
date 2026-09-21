@@ -40,10 +40,34 @@ class TelegramGateway(Protocol):
     async def can_reach_private_chat(self, telegram_user_id: int) -> bool:
         """Return whether Telegram currently exposes this private chat to the bot."""
 
+    async def configure_top_up_menu(self, user: UserConfig) -> None:
+        """Configure the private-chat menu button for manual top-up."""
+
+    async def reset_top_up_menu(self, user: UserConfig) -> None:
+        """Restore the private-chat menu button to the bot default."""
+
+    async def send_manual_top_up_launcher(self, user: UserConfig) -> int:
+        """Send a fallback button that opens the manual top-up Mini App."""
+
+    async def send_manual_top_up_confirmation(
+        self,
+        user: UserConfig,
+        *,
+        request_id: str,
+        amount: Decimal,
+        safe_balance: Decimal,
+    ) -> int:
+        """Send a one-time manual top-up confirmation."""
+
 
 class BalanceProvider(Protocol):
     async def get_balance(self, user: UserConfig) -> Decimal:
         """Read the configured token balance for the target account in Optimism."""
+
+
+class SafeBalanceProvider(Protocol):
+    async def get_available_balance(self, user: UserConfig) -> Decimal:
+        """Read the Safe's available Arbitrum Aave native-USDC position."""
 
 
 class SafeWalletClient(Protocol):

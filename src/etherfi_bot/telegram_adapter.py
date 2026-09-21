@@ -55,9 +55,12 @@ class TelegramUpdateAdapter:
                 update.update_id,
             )
             return "ignored_message_without_user"
-        if _is_start_command(message.text or "", message.entities):
+        if _is_command(message.text or "", message.entities, "start"):
             await self._dispatcher.start(user.id)
             return "start"
+        if _is_command(message.text or "", message.entities, "topup"):
+            await self._dispatcher.manual_top_up_launcher(user.id)
+            return "topup"
         await self._dispatcher.ignore_event(user.id)
         self._logger.debug(
             "telegram_update_ignored action=ignored_message telegram_update_id=%s "
@@ -91,6 +94,16 @@ class TelegramUpdateAdapter:
                 elif data == "ignore":
                     await self._dispatcher.callback_ignore(user.id, int(message_id))
                     action = "callback_ignore"
+                elif data and data.startswith("manual_confirm:"):
+                    await self._dispatcher.callback_manual_top_up_confirm(
+                        user.id, int(message_id), data.partition(":")[2]
+                    )
+                    action = "callback_manual_top_up_confirm"
+                elif data and data.startswith("manual_cancel:"):
+                    await self._dispatcher.callback_manual_top_up_cancel(
+                        user.id, int(message_id), data.partition(":")[2]
+                    )
+                    action = "callback_manual_top_up_cancel"
                 else:
                     await self._dispatcher.ignore_event(user.id)
                     self._logger.debug(
@@ -190,12 +203,15 @@ class TelegramUpdateAdapter:
         return "ignored_reaction"
 
 
-def _is_start_command(text: str, entities: tuple[MessageEntity, ...]) -> bool:
-    if not text.startswith("/start"):
+def _is_command(
+    text: str, entities: tuple[MessageEntity, ...], command: str
+) -> bool:
+    expected = f"/{command}"
+    if not text.startswith(expected):
         return False
     return any(
         entity.offset == 0
         and entity.type == MessageEntity.BOT_COMMAND
-        and text[: entity.length].split("@", 1)[0] == "/start"
+        and text[: entity.length].split("@", 1)[0] == expected
         for entity in entities
     )

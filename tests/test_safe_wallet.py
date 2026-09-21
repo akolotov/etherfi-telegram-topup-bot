@@ -54,6 +54,35 @@ async def test_safe_client_creates_top_up_proposal_over_async_http() -> None:
     await http_client.aclose()
 
 
+async def test_safe_client_recovers_accepted_proposal_after_ambiguous_post() -> None:
+    user = make_user(telegram_user_id=1001)
+    transport = SafeTransport(
+        safe_info={"nonce": "18", "version": "1.3.0+L2"},
+        delegates=[{"delegate": proposer_address_from_key(PRIVATE_KEY).lower()}],
+        post_status=500,
+        tx_status=200,
+        tx_payload={"isExecuted": False, "nonce": 18},
+    )
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(transport))
+    client = SafeWalletTransactionServiceClient(
+        SafeTxServiceClient(
+            "safe-api-key", base_url="https://safe.test", client=http_client
+        ),
+        StaticPreparer(),
+    )
+
+    safe_tx_hash = await client.create_top_up_tx(user, Decimal("17"), PRIVATE_KEY)
+
+    assert safe_tx_hash == json.loads(transport.post_requests[0].content)[
+        "contractTransactionHash"
+    ]
+    assert any(
+        request.url.path.endswith(f"/{safe_tx_hash}/")
+        for request in transport.get_requests
+    )
+    await http_client.aclose()
+
+
 async def test_safe_client_rejects_unregistered_proposer() -> None:
     transport = SafeTransport(
         safe_info={"nonce": "18", "version": "1.3.0+L2"}, delegates=[]
@@ -167,18 +196,20 @@ class SafeTransport:
         delegates: list[dict[str, str]] | None = None,
         tx_status: int = 404,
         tx_payload: dict[str, Any] | None = None,
+        post_status: int = 201,
     ) -> None:
         self.safe_info = safe_info
         self.delegates = delegates if delegates is not None else []
         self.tx_status = tx_status
         self.tx_payload = tx_payload or {"detail": "not found"}
+        self.post_status = post_status
         self.get_requests: list[httpx.Request] = []
         self.post_requests: list[httpx.Request] = []
 
     async def __call__(self, request: httpx.Request) -> httpx.Response:
         if request.method == "POST":
             self.post_requests.append(request)
-            return httpx.Response(201)
+            return httpx.Response(self.post_status, json={"detail": "post response"})
         self.get_requests.append(request)
         path = request.url.path
         if path.startswith("/api/v1/safes/"):

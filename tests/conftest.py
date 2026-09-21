@@ -12,12 +12,13 @@ from typing import Any, Callable
 import pytest
 
 from etherfi_bot.dispatcher import BotDispatcher
-from etherfi_bot.domain import UserConfig
+from etherfi_bot.domain import ManualTopUpConfig, UserConfig
 from etherfi_bot.fsm import FsmService
 from etherfi_bot.mocks import (
     MockBalanceProvider,
     MockClock,
     MockPrivateKeyProvider,
+    MockSafeBalanceProvider,
     MockSafeWalletClient,
     MockTelegramGateway,
 )
@@ -31,6 +32,7 @@ class FsmHarness:
     telegram: MockTelegramGateway
     balances: MockBalanceProvider
     safe: MockSafeWalletClient
+    safe_balances: MockSafeBalanceProvider
     private_keys: MockPrivateKeyProvider
     clock: MockClock
     fsm: "AsyncTestFacade"
@@ -44,6 +46,10 @@ class AsyncTestFacade:
         "balance_tick",
         "callback_top_up",
         "callback_ignore",
+        "manual_top_up_context",
+        "prepare_manual_top_up",
+        "callback_manual_top_up_confirm",
+        "callback_manual_top_up_cancel",
         "user_blocked",
         "ignore_event",
         "recover_missing_user_states",
@@ -84,6 +90,7 @@ def make_user(
     interval: int = 60,
     cooldown: int = 300,
     limit: int = 3,
+    manual_top_up: ManualTopUpConfig | None = None,
 ) -> UserConfig:
     return UserConfig(
         telegram_user_id=telegram_user_id,
@@ -96,6 +103,7 @@ def make_user(
         safe_proposer_key_file=f"./.secrets/safe_proposer_private_key_{telegram_user_id}",
         low_balance_notification_limit=limit,
         low_balance_notification_cooldown_seconds=cooldown,
+        manual_top_up=manual_top_up,
     )
 
 
@@ -107,6 +115,7 @@ def harness_factory(tmp_path: Path) -> Callable[..., FsmHarness]:
         telegram = MockTelegramGateway()
         balances = MockBalanceProvider()
         safe = MockSafeWalletClient()
+        safe_balances = MockSafeBalanceProvider()
         private_keys = MockPrivateKeyProvider({user_config.safe_proposer_key_file: "private-key"})
         clock = MockClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
         fsm_service = FsmService(
@@ -117,6 +126,7 @@ def harness_factory(tmp_path: Path) -> Callable[..., FsmHarness]:
             private_keys=private_keys,
             clock=clock,
             admin_telegram_user_id=admin_user_id,
+            safe_balances=safe_balances,
         )
         return FsmHarness(
             user=user_config,
@@ -124,6 +134,7 @@ def harness_factory(tmp_path: Path) -> Callable[..., FsmHarness]:
             telegram=telegram,
             balances=balances,
             safe=safe,
+            safe_balances=safe_balances,
             private_keys=private_keys,
             clock=clock,
             fsm=AsyncTestFacade(fsm_service),
@@ -148,6 +159,21 @@ def write_config(path: Path, users: list[UserConfig], admin_user_id: int | None 
                 "low_balance_notification_limit": user.low_balance_notification_limit,
                 "low_balance_notification_cooldown_seconds": (
                     user.low_balance_notification_cooldown_seconds
+                ),
+                **(
+                    {}
+                    if user.manual_top_up is None
+                    else {
+                        "manual_top_up": {
+                            "preset_amounts": [
+                                str(amount)
+                                for amount in user.manual_top_up.preset_amounts
+                            ],
+                            "max_custom_amount": str(
+                                user.manual_top_up.max_custom_amount
+                            ),
+                        }
+                    }
                 ),
             }
             for user in users
@@ -177,6 +203,7 @@ def make_dispatcher(
     telegram = MockTelegramGateway()
     balances = MockBalanceProvider()
     safe = MockSafeWalletClient()
+    safe_balances = MockSafeBalanceProvider()
     private_keys = MockPrivateKeyProvider(
         {user.safe_proposer_key_file: f"key-{user.telegram_user_id}" for user in users}
     )
@@ -190,6 +217,7 @@ def make_dispatcher(
         private_keys=private_keys,
         clock=clock,
         logger=logger,
+        safe_balances=safe_balances,
     )
     return (
         AsyncTestFacade(dispatcher),

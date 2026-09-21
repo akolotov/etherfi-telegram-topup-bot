@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from asyncio import Lock
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -9,6 +10,8 @@ from etherfi_bot.domain import (
     BalanceReadError,
     BotState,
     InsufficientSafeBalanceError,
+    ManualTopUpContext,
+    ManualTopUpError,
     SafeTxCreateError,
     SafeTxStatusReadError,
     SafeTxStatus,
@@ -21,6 +24,7 @@ from etherfi_bot.ports import (
     Clock,
     PrivateKeyProvider,
     SafeWalletClient,
+    SafeBalanceProvider,
     StateRepository,
     TelegramGateway,
 )
@@ -37,6 +41,7 @@ class FsmService:
         clock: Clock,
         admin_telegram_user_id: int | None,
         logger: logging.Logger | None = None,
+        safe_balances: SafeBalanceProvider | None = None,
     ) -> None:
         self._states = state_repository
         self._telegram = telegram
@@ -46,6 +51,7 @@ class FsmService:
         self._clock = clock
         self._admin_telegram_user_id = admin_telegram_user_id
         self._logger = logger or logging.getLogger(__name__)
+        self._safe_balances = safe_balances
         self._user_locks: dict[int, Lock] = {}
 
     async def start(self, user: UserConfig) -> UserState:
@@ -208,6 +214,104 @@ class FsmService:
         async with self._user_lock(user.telegram_user_id):
             return self._states.load(user.telegram_user_id)
 
+    async def discard_manual_top_up_confirmation(
+        self, telegram_user_id: int
+    ) -> UserState:
+        async with self._user_lock(telegram_user_id):
+            state = self._states.load(telegram_user_id)
+            await self._expire_manual_top_up(state, force=True)
+            return state
+
+    async def manual_top_up_context(self, user: UserConfig) -> ManualTopUpContext:
+        async with self._user_lock(user.telegram_user_id):
+            state = self._states.load(user.telegram_user_id)
+            self._require_manual_top_up(user, state)
+            await self._expire_manual_top_up(state)
+            target_balance, safe_balance = await self._read_manual_balances(user)
+            assert user.manual_top_up is not None
+            self._states.save(state)
+            return ManualTopUpContext(
+                target_balance=target_balance,
+                safe_balance=safe_balance,
+                maximum_amount=min(
+                    safe_balance, user.manual_top_up.max_custom_amount
+                ),
+                preset_amounts=user.manual_top_up.preset_amounts,
+                target_account=user.target_account,
+                safe_account=user.safe_account,
+            )
+
+    async def prepare_manual_top_up(
+        self, user: UserConfig, amount: Decimal
+    ) -> UserState:
+        async with self._user_lock(user.telegram_user_id):
+            state = self._states.load(user.telegram_user_id)
+            self._require_manual_top_up(user, state)
+            self._validate_manual_amount(user, amount)
+            await self._expire_manual_top_up(state, force=True)
+            safe_balance = await self._read_safe_balance(user)
+            if amount > safe_balance:
+                raise ManualTopUpError("The Safe balance is lower than this amount")
+            if state.current_message_id is not None:
+                await self._remove_current_buttons(user, state)
+            self._clear_low_context(state)
+            state.state = BotState.MONITORING
+            request_id = secrets.token_urlsafe(12)
+            message_id = await self._telegram.send_manual_top_up_confirmation(
+                user,
+                request_id=request_id,
+                amount=amount,
+                safe_balance=safe_balance,
+            )
+            state.manual_top_up_request_id = request_id
+            state.manual_top_up_amount = amount
+            state.manual_top_up_expires_at = self._clock.now() + timedelta(minutes=10)
+            state.manual_top_up_message_id = message_id
+            self._states.save(state)
+            return state
+
+    async def callback_manual_top_up_confirm(
+        self, user: UserConfig, message_id: int, request_id: str
+    ) -> UserState:
+        async with self._user_lock(user.telegram_user_id):
+            state = self._states.load(user.telegram_user_id)
+            if not self._is_manual_callback(state, message_id, request_id):
+                return state
+            if await self._expire_manual_top_up(state):
+                return state
+            amount = state.manual_top_up_amount
+            assert amount is not None
+            await self._telegram.remove_buttons(user.telegram_user_id, message_id)
+            state.clear_manual_top_up()
+            try:
+                safe_balance = await self._read_safe_balance(user)
+            except ManualTopUpError:
+                state.state = BotState.MONITORING
+                self._states.save(state)
+                raise
+            if amount > safe_balance:
+                await self._telegram.send_insufficient_safe_balance(user)
+                state.state = BotState.MONITORING
+            else:
+                await self._create_manual_safe_tx(
+                    user, state, amount, message_id=message_id
+                )
+            self._states.save(state)
+            return state
+
+    async def callback_manual_top_up_cancel(
+        self, user: UserConfig, message_id: int, request_id: str
+    ) -> UserState:
+        async with self._user_lock(user.telegram_user_id):
+            state = self._states.load(user.telegram_user_id)
+            if not self._is_manual_callback(state, message_id, request_id):
+                return state
+            await self._telegram.remove_buttons(user.telegram_user_id, message_id)
+            state.clear_manual_top_up()
+            state.state = BotState.MONITORING
+            self._states.save(state)
+            return state
+
     async def _handle_balance_tick(self, user: UserConfig, state: UserState) -> None:
         handled_at = self._clock.now()
         safe_status: SafeTxStatus | None = None
@@ -326,6 +430,17 @@ class FsmService:
         balance: Decimal,
         handled_at: datetime,
     ) -> None:
+        if state.manual_top_up_request_id is not None:
+            if not await self._expire_manual_top_up(state):
+                self._log_user_event(
+                    logging.DEBUG,
+                    "balance_tick_noop",
+                    user,
+                    state=state.state,
+                    reason="manual_top_up_confirmation_active",
+                    balance=balance,
+                )
+                return
         if self._balance_ok(user, balance):
             previous_state = state.state
             previous_message_id = state.current_message_id
@@ -658,6 +773,134 @@ class FsmService:
         state.pending_safe_tx_id = safe_tx_id
         state.tx_reminder_until = self._clock.now() + self._cooldown_delta(user)
         state.state = BotState.SAFE_TX_PENDING
+
+    async def _create_manual_safe_tx(
+        self,
+        user: UserConfig,
+        state: UserState,
+        amount: Decimal,
+        *,
+        message_id: int,
+    ) -> None:
+        previous_state = state.state
+        try:
+            private_key = await self._private_keys.read_private_key(
+                user.safe_proposer_key_file
+            )
+            safe_tx_id = await self._safe_wallet.create_top_up_tx(
+                user, amount, private_key
+            )
+        except (KeyError, OSError, ValueError, SafeTxCreateError) as error:
+            self._log_user_event(
+                logging.ERROR,
+                "safe_tx_creation_failed",
+                user,
+                previous_state=previous_state,
+                state=BotState.MONITORING,
+                message_id=message_id,
+                amount=amount,
+                error_type=type(error).__name__,
+                error=error,
+            )
+            await self._notify_admin(
+                f"Safe tx creation failed for safe {user.safe_account}: {error}"
+            )
+            if isinstance(error, InsufficientSafeBalanceError):
+                await self._telegram.send_insufficient_safe_balance(user)
+            state.state = BotState.MONITORING
+            return
+        # Automatic top-up uses SAFE_TX_PENDING to suppress duplicate low-balance
+        # actions while its proposal awaits signatures. A manual top-up is
+        # intentionally different: it must not pause balance monitoring or block
+        # the user from deliberately creating another proposal in Safe.
+        self._clear_tx_context(state)
+        state.state = BotState.MONITORING
+        # Persist the consumed confirmation before notifying the user: the Safe
+        # proposal already exists even if Telegram becomes unavailable now.
+        self._states.save(state)
+        await self._notify_admin(
+            f"Tx created in safe {user.safe_account} to top up {user.target_account}"
+        )
+        await self._telegram.send_safe_tx_created(user, safe_tx_id)
+
+    def _require_manual_top_up(self, user: UserConfig, state: UserState) -> None:
+        if user.manual_top_up is None:
+            raise ManualTopUpError("Manual top-up is not configured")
+        if state.state is BotState.NOT_STARTED:
+            raise ManualTopUpError("Start the bot before using manual top-up")
+        # SAFE_TX_PENDING is reserved for the automatic low-balance flow. Manual
+        # proposals themselves stay in MONITORING and therefore do not hit this
+        # guard when the user intentionally creates another Safe proposal.
+        if state.state is BotState.SAFE_TX_PENDING:
+            raise ManualTopUpError("A Safe transaction is already pending")
+        if self._safe_balances is None:
+            raise ManualTopUpError("Safe balance provider is unavailable")
+
+    def _validate_manual_amount(self, user: UserConfig, amount: Decimal) -> None:
+        assert user.manual_top_up is not None
+        if not amount.is_finite() or amount <= 0:
+            raise ManualTopUpError("Amount must be greater than zero")
+        if amount.as_tuple().exponent < -6:
+            raise ManualTopUpError("Amount supports at most 6 decimals")
+        if amount > user.manual_top_up.max_custom_amount:
+            raise ManualTopUpError("Amount exceeds the configured maximum")
+
+    async def _read_safe_balance(self, user: UserConfig) -> Decimal:
+        assert self._safe_balances is not None
+        try:
+            return await self._safe_balances.get_available_balance(user)
+        except BalanceReadError as error:
+            await self._notify_admin(
+                f"Safe balance read failed for safe {user.safe_account}: {error}"
+            )
+            raise ManualTopUpError("Could not refresh the Safe balance") from error
+
+    async def _read_manual_balances(
+        self, user: UserConfig
+    ) -> tuple[Decimal, Decimal]:
+        try:
+            target_balance = await self._balances.get_balance(user)
+        except BalanceReadError as error:
+            await self._notify_admin(
+                f"Balance read failed for target account {user.target_account}: {error}"
+            )
+            raise ManualTopUpError("Could not refresh the card balance") from error
+        return target_balance, await self._read_safe_balance(user)
+
+    def _is_manual_callback(
+        self, state: UserState, message_id: int, request_id: str
+    ) -> bool:
+        return (
+            state.manual_top_up_request_id == request_id
+            and state.manual_top_up_message_id == int(message_id)
+        )
+
+    async def _expire_manual_top_up(
+        self, state: UserState, *, force: bool = False
+    ) -> bool:
+        if state.manual_top_up_request_id is None:
+            return False
+        expires_at = state.manual_top_up_expires_at
+        if not force and expires_at is not None and self._clock.now() < expires_at:
+            return False
+        message_id = state.manual_top_up_message_id
+        state.clear_manual_top_up()
+        self._states.save(state)
+        if message_id is not None:
+            try:
+                await self._telegram.remove_buttons(
+                    state.telegram_user_id, message_id
+                )
+            except Exception as error:
+                self._logger.warning(
+                    "manual_top_up_button_cleanup_failed telegram_user_id=%s "
+                    "message_id=%s error_type=%s error=%s",
+                    state.telegram_user_id,
+                    message_id,
+                    type(error).__name__,
+                    error,
+                )
+        return True
 
     async def _send_first_low_prompt(
         self,

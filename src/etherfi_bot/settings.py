@@ -28,6 +28,7 @@ class RuntimeSettings:
     blockscout_retry_initial_delay_seconds: float = 0.5
     blockscout_retry_backoff_factor: float = 2
     log_level: str = "INFO"
+    mini_app_public_url: str | None = None
 
     @classmethod
     def from_env_file(
@@ -70,6 +71,9 @@ class RuntimeSettings:
                 listen_host=webhook_listen_host,
                 listen_port=webhook_listen_port,
             )
+        mini_app_public_url = values.get("MINI_APP_PUBLIC_URL", "").rstrip("/")
+        if mini_app_public_url:
+            _validate_mini_app_url(mini_app_public_url)
         blockscout_max_attempts = int(values.get("BLOCKSCOUT_MAX_ATTEMPTS", "3"))
         blockscout_retry_initial_delay_seconds = float(
             values.get("BLOCKSCOUT_RETRY_INITIAL_DELAY_SECONDS", "0.5")
@@ -117,6 +121,7 @@ class RuntimeSettings:
             blockscout_retry_initial_delay_seconds=blockscout_retry_initial_delay_seconds,
             blockscout_retry_backoff_factor=blockscout_retry_backoff_factor,
             log_level=values.get("LOG_LEVEL", "INFO"),
+            mini_app_public_url=mini_app_public_url or None,
         )
 
     @property
@@ -189,3 +194,17 @@ def _validate_webhook_settings(
         raise RuntimeError("WEBHOOK_LISTEN_HOST must not be empty")
     if not 1 <= listen_port <= 65535:
         raise RuntimeError("WEBHOOK_LISTEN_PORT must be between 1 and 65535")
+
+
+def _validate_mini_app_url(url: str) -> None:
+    parsed = urlsplit(url)
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or parsed.path in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise RuntimeError(
+            "MINI_APP_PUBLIC_URL must be an HTTPS URL with a path and no query or fragment"
+        )

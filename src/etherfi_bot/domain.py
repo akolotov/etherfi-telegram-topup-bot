@@ -40,6 +40,55 @@ class SafeTxStatusReadError(RuntimeError):
     """The Safe transaction status could not be read."""
 
 
+class ManualTopUpError(RuntimeError):
+    """A manual top-up request cannot be prepared or confirmed."""
+
+
+@dataclass(frozen=True)
+class ManualTopUpConfig:
+    preset_amounts: tuple[Decimal, ...]
+    max_custom_amount: Decimal
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ManualTopUpConfig":
+        if not isinstance(data, dict):
+            raise ValueError("manual_top_up must be an object")
+        raw_presets = data.get("preset_amounts")
+        if not isinstance(raw_presets, list) or not raw_presets:
+            raise ValueError("manual_top_up.preset_amounts must be a non-empty list")
+        config = cls(
+            preset_amounts=tuple(Decimal(str(value)) for value in raw_presets),
+            max_custom_amount=Decimal(str(data["max_custom_amount"])),
+        )
+        config.validate()
+        return config
+
+    def validate(self) -> None:
+        if self.max_custom_amount <= 0:
+            raise ValueError("manual_top_up.max_custom_amount must be > 0")
+        if len(set(self.preset_amounts)) != len(self.preset_amounts):
+            raise ValueError("manual_top_up.preset_amounts must be unique")
+        for amount in (*self.preset_amounts, self.max_custom_amount):
+            if amount <= 0:
+                raise ValueError("manual_top_up amounts must be > 0")
+            if amount.as_tuple().exponent < -6:
+                raise ValueError("manual_top_up amounts support at most 6 decimals")
+        if any(amount > self.max_custom_amount for amount in self.preset_amounts):
+            raise ValueError(
+                "manual_top_up preset amounts must be <= max_custom_amount"
+            )
+
+
+@dataclass(frozen=True)
+class ManualTopUpContext:
+    target_balance: Decimal
+    safe_balance: Decimal
+    maximum_amount: Decimal
+    preset_amounts: tuple[Decimal, ...]
+    target_account: str
+    safe_account: str
+
+
 @dataclass(frozen=True)
 class UserConfig:
     telegram_user_id: int
@@ -52,6 +101,7 @@ class UserConfig:
     safe_proposer_key_file: str
     low_balance_notification_limit: int
     low_balance_notification_cooldown_seconds: int
+    manual_top_up: ManualTopUpConfig | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "UserConfig":
@@ -64,6 +114,7 @@ class UserConfig:
             or not safe_proposer_key_file.strip()
         ):
             raise ValueError("safe_proposer_key_file must be a non-empty string")
+        raw_manual_top_up = data.get("manual_top_up")
         config = cls(
             telegram_user_id=int(data["telegram_user_id"]),
             target_account=str(data["target_account"]),
@@ -77,6 +128,9 @@ class UserConfig:
             low_balance_notification_cooldown_seconds=int(
                 data["low_balance_notification_cooldown_seconds"]
             ),
+            manual_top_up=None
+            if raw_manual_top_up is None
+            else ManualTopUpConfig.from_dict(raw_manual_top_up),
         )
         config.validate()
         return config
@@ -104,6 +158,8 @@ class UserConfig:
             raise ValueError("target_max_balance must be >= 0")
         if self.target_max_balance < self.balance_threshold:
             raise ValueError("target_max_balance must be >= balance_threshold")
+        if self.manual_top_up is not None:
+            self.manual_top_up.validate()
 
 
 @dataclass(frozen=True)
@@ -136,6 +192,10 @@ class UserState:
     next_tick_at: datetime | None = None
     last_balance: Decimal | None = None
     low_balance_drop_admin_notified: bool = False
+    manual_top_up_request_id: str | None = None
+    manual_top_up_amount: Decimal | None = None
+    manual_top_up_expires_at: datetime | None = None
+    manual_top_up_message_id: int | None = None
 
     @classmethod
     def new(cls, telegram_user_id: int) -> "UserState":
@@ -160,6 +220,12 @@ class UserState:
             low_balance_drop_admin_notified=bool(
                 data.get("low_balance_drop_admin_notified", False)
             ),
+            manual_top_up_request_id=data.get("manual_top_up_request_id"),
+            manual_top_up_amount=parse_decimal(data.get("manual_top_up_amount")),
+            manual_top_up_expires_at=parse_datetime(
+                data.get("manual_top_up_expires_at")
+            ),
+            manual_top_up_message_id=data.get("manual_top_up_message_id"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -175,6 +241,12 @@ class UserState:
             "next_tick_at": format_datetime(self.next_tick_at),
             "last_balance": format_decimal(self.last_balance),
             "low_balance_drop_admin_notified": self.low_balance_drop_admin_notified,
+            "manual_top_up_request_id": self.manual_top_up_request_id,
+            "manual_top_up_amount": format_decimal(self.manual_top_up_amount),
+            "manual_top_up_expires_at": format_datetime(
+                self.manual_top_up_expires_at
+            ),
+            "manual_top_up_message_id": self.manual_top_up_message_id,
         }
 
     def reset_runtime(self) -> None:
@@ -188,6 +260,13 @@ class UserState:
         self.next_tick_at = None
         self.last_balance = None
         self.low_balance_drop_admin_notified = False
+        self.clear_manual_top_up()
+
+    def clear_manual_top_up(self) -> None:
+        self.manual_top_up_request_id = None
+        self.manual_top_up_amount = None
+        self.manual_top_up_expires_at = None
+        self.manual_top_up_message_id = None
 
 
 def ensure_utc(value: datetime) -> datetime:

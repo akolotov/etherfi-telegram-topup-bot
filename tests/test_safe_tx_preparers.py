@@ -11,10 +11,12 @@ from etherfi_bot.safe_tx_preparers import (
     AAVE_V3_ARBITRUM_POOL,
     ARBITRUM_AAVE_NATIVE_USDC_ATOKEN,
     ARBITRUM_NATIVE_USDC,
+    AaveSafeBalanceProvider,
     AaveV3NativeUsdcWithdrawPreparer,
     checksum,
     decimal_to_base_units,
 )
+from tests.conftest import make_user
 
 
 async def test_aave_preflight_passes_when_safe_has_enough_ausdc() -> None:
@@ -56,6 +58,15 @@ async def test_aave_preflight_wraps_blockscout_errors_as_safe_tx_create_failed()
             Decimal("1"),
             "0x0000000000000000000000000000000000000002",
         )
+
+
+async def test_aave_safe_balance_provider_returns_fresh_ausdc_amount() -> None:
+    balances = RecordingBalances(balance_base_units=1_234_567_890)
+    provider = AaveSafeBalanceProvider(balances)
+    user = make_user()
+
+    assert await provider.get_available_balance(user) == Decimal("1234.56789")
+    assert balances.calls[0]["account_address"] == checksum(user.safe_account)
 
 
 def test_decimal_to_base_units_requires_exact_token_precision() -> None:

@@ -49,6 +49,8 @@ class MockTelegramGateway:
         self.forbidden_user_ids: set[int] = set()
         self.forbidden_operations_by_user: dict[int, set[str]] = {}
         self._next_message_id = 1
+        self.configured_top_up_menus: list[int] = []
+        self.reset_top_up_menus: list[int] = []
 
     async def send_low_balance_prompt(self, user: UserConfig, balance: Decimal) -> int:
         return self._send_user(
@@ -125,6 +127,43 @@ class MockTelegramGateway:
             raise error
         return normalized_user_id not in self.unreachable_private_chat_user_ids
 
+    async def configure_top_up_menu(self, user: UserConfig) -> None:
+        self._raise_if_forbidden(user.telegram_user_id, "configure_top_up_menu")
+        self.configured_top_up_menus.append(user.telegram_user_id)
+
+    async def reset_top_up_menu(self, user: UserConfig) -> None:
+        self._raise_if_forbidden(user.telegram_user_id, "reset_top_up_menu")
+        self.reset_top_up_menus.append(user.telegram_user_id)
+
+    async def send_manual_top_up_launcher(self, user: UserConfig) -> int:
+        return self._send_user(
+            user.telegram_user_id,
+            "manual_top_up_launcher",
+            "send_manual_top_up_launcher",
+            buttons=True,
+            text="Open the Top Up app to choose an amount.",
+        )
+
+    async def send_manual_top_up_confirmation(
+        self,
+        user: UserConfig,
+        *,
+        request_id: str,
+        amount: Decimal,
+        safe_balance: Decimal,
+    ) -> int:
+        del request_id
+        return self._send_user(
+            user.telegram_user_id,
+            "manual_top_up_confirmation",
+            "send_manual_top_up_confirmation",
+            buttons=True,
+            text=(
+                f"Manual top-up request: {amount} USDC. "
+                f"Available in Safe: {safe_balance} USDC."
+            ),
+        )
+
     def forbid_operation(self, telegram_user_id: int, operation: str) -> None:
         operations = self.forbidden_operations_by_user.setdefault(int(telegram_user_id), set())
         operations.add(operation)
@@ -183,6 +222,22 @@ class MockBalanceProvider:
         if user.target_account in self.fail_accounts or balance_key in self.fail_balances:
             raise BalanceReadError("Could not read balance")
         return self.balances.get(balance_key, Decimal("0"))
+
+
+class MockSafeBalanceProvider:
+    def __init__(self) -> None:
+        self.balances: dict[str, Decimal] = {}
+        self.fail_accounts: set[str] = set()
+        self.reads: list[str] = []
+
+    def set_balance(self, safe_account: str, balance: Decimal | str | int) -> None:
+        self.balances[safe_account] = Decimal(str(balance))
+
+    async def get_available_balance(self, user: UserConfig) -> Decimal:
+        self.reads.append(user.safe_account)
+        if user.safe_account in self.fail_accounts:
+            raise BalanceReadError("Could not read Safe balance")
+        return self.balances.get(user.safe_account, Decimal("0"))
 
 
 @dataclass(frozen=True)
