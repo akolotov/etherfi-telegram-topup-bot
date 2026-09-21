@@ -154,6 +154,53 @@ class FsmService:
             self._states.save(state)
             return state
 
+    async def callback_ignore_for_24h(
+        self, user: UserConfig, message_id: int
+    ) -> UserState:
+        async with self._user_lock(user.telegram_user_id):
+            state = self._states.load(user.telegram_user_id)
+            if not self._is_latest_callback(state, message_id):
+                self._log_user_event(
+                    logging.DEBUG,
+                    "callback_stale_ignored",
+                    user,
+                    callback_action="ignore_for_24h",
+                    state=state.state,
+                    callback_message_id=message_id,
+                    current_message_id=state.current_message_id,
+                )
+                return state
+            previous_state = state.state
+            try:
+                await self._telegram.remove_buttons(user.telegram_user_id, message_id)
+                self._clear_low_context(state)
+                state.low_balance_snoozed_until = self._clock.now() + timedelta(hours=24)
+                state.state = BotState.MONITORING
+                self._log_user_event(
+                    logging.INFO,
+                    "low_balance_snoozed",
+                    user,
+                    previous_state=previous_state,
+                    state=state.state,
+                    message_id=message_id,
+                    low_balance_snoozed_until=state.low_balance_snoozed_until,
+                )
+            except TelegramForbiddenError as error:
+                state.reset_runtime()
+                self._log_user_event(
+                    logging.WARNING,
+                    "telegram_forbidden_reset",
+                    user,
+                    operation_context="callback_ignore_for_24h",
+                    previous_state=previous_state,
+                    state=state.state,
+                    message_id=message_id,
+                    error_type=type(error).__name__,
+                    error=error,
+                )
+            self._states.save(state)
+            return state
+
     async def callback_top_up(self, user: UserConfig, message_id: int) -> UserState:
         async with self._user_lock(user.telegram_user_id):
             state = self._states.load(user.telegram_user_id)
@@ -447,6 +494,7 @@ class FsmService:
             if state.state in {BotState.LOW_PROMPT, BotState.LOW_COOLDOWN}:
                 await self._remove_current_buttons(user, state)
             self._clear_low_context(state)
+            state.low_balance_snoozed_until = None
             state.state = BotState.MONITORING
             if previous_state is BotState.MONITORING:
                 self._log_user_event(
@@ -470,6 +518,23 @@ class FsmService:
                     message_id=previous_message_id,
                 )
             return
+
+        if (
+            state.low_balance_snoozed_until is not None
+            and handled_at < state.low_balance_snoozed_until
+        ):
+            self._log_user_event(
+                logging.DEBUG,
+                "balance_tick_noop",
+                user,
+                state=state.state,
+                reason="low_balance_snooze_active",
+                balance=balance,
+                threshold=user.balance_threshold,
+                low_balance_snoozed_until=state.low_balance_snoozed_until,
+            )
+            return
+        state.low_balance_snoozed_until = None
 
         if state.state is BotState.MONITORING:
             await self._send_first_low_prompt(user, state, balance, handled_at)

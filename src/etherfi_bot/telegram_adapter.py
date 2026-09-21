@@ -94,6 +94,11 @@ class TelegramUpdateAdapter:
                 elif data == "ignore":
                     await self._dispatcher.callback_ignore(user.id, int(message_id))
                     action = "callback_ignore"
+                elif data == "ignore_for_24h":
+                    await self._dispatcher.callback_ignore_for_24h(
+                        user.id, int(message_id)
+                    )
+                    action = "callback_ignore_for_24h"
                 elif data and data.startswith("manual_confirm:"):
                     await self._dispatcher.callback_manual_top_up_confirm(
                         user.id, int(message_id), data.partition(":")[2]

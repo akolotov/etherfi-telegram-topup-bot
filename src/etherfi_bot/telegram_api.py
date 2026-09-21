@@ -30,10 +30,17 @@ class TelegramBotGateway:
                 chat_id=user.telegram_user_id,
                 text=f"Balance is low: {balance}. Top up?",
                 reply_markup=InlineKeyboardMarkup(
-                    [[
-                        InlineKeyboardButton("Top Up", callback_data="top_up"),
-                        InlineKeyboardButton("Ignore", callback_data="ignore"),
-                    ]]
+                    [
+                        [
+                            InlineKeyboardButton("Top Up", callback_data="top_up"),
+                            InlineKeyboardButton("Ignore", callback_data="ignore"),
+                        ],
+                        [
+                            InlineKeyboardButton(
+                                "Ignore for 24h", callback_data="ignore_for_24h"
+                            )
+                        ],
+                    ]
                 ),
             )
         except Forbidden as error:

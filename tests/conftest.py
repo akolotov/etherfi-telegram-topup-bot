@@ -46,6 +46,7 @@ class AsyncTestFacade:
         "balance_tick",
         "callback_top_up",
         "callback_ignore",
+        "callback_ignore_for_24h",
         "manual_top_up_context",
         "prepare_manual_top_up",
         "callback_manual_top_up_confirm",

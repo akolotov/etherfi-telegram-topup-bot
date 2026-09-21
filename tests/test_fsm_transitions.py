@@ -274,6 +274,56 @@ def test_latest_ignore_from_s2_resets_to_monitoring(harness_factory) -> None:
     assert harness.telegram.removed_buttons[-1] == (harness.user.telegram_user_id, message_id)
 
 
+def test_ignore_for_24h_suppresses_prompts_until_snooze_expires(
+    harness_factory,
+) -> None:
+    harness = harness_factory()
+    message_id = make_low_prompt(harness, "1")
+
+    state = harness.fsm.callback_ignore_for_24h(harness.user, message_id)
+
+    expected_until = harness.clock.now() + timedelta(hours=24)
+    assert state.state is BotState.MONITORING
+    assert state.low_balance_snoozed_until == expected_until
+    assert state.notification_count == 0
+    assert state.current_message_id is None
+    assert harness.telegram.removed_buttons[-1] == (
+        harness.user.telegram_user_id,
+        message_id,
+    )
+
+    message_count = len(harness.telegram.messages)
+    harness.clock.advance(24 * 60 * 60 - 1)
+    state = harness.fsm.balance_tick(harness.user)
+
+    assert state.state is BotState.MONITORING
+    assert state.low_balance_snoozed_until == expected_until
+    assert len(harness.telegram.messages) == message_count
+
+    harness.clock.advance(1)
+    state = harness.fsm.balance_tick(harness.user)
+
+    assert state.state is BotState.LOW_PROMPT
+    assert state.low_balance_snoozed_until is None
+    assert len(harness.telegram.messages) == message_count + 1
+
+
+def test_balance_recovery_clears_24h_snooze(harness_factory) -> None:
+    harness = harness_factory()
+    message_id = make_low_prompt(harness, "1")
+    harness.fsm.callback_ignore_for_24h(harness.user, message_id)
+
+    harness.balances.set_balance(harness.user.target_account, "10")
+    state = harness.fsm.balance_tick(harness.user)
+
+    assert state.low_balance_snoozed_until is None
+
+    harness.balances.set_balance(harness.user.target_account, "1")
+    state = harness.fsm.balance_tick(harness.user)
+
+    assert state.state is BotState.LOW_PROMPT
+
+
 def test_limit_greater_than_one_cooldown_expiry_restarts_cycle_in_s2(harness_factory) -> None:
     user = make_user(limit=2, cooldown=300)
     harness = harness_factory(user)
