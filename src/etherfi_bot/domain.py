@@ -185,6 +185,7 @@ class UserState:
     state: BotState = BotState.NOT_STARTED
     notification_count: int = 0
     low_cooldown_until: datetime | None = None
+    low_balance_snoozed_until: datetime | None = None
     tx_reminder_until: datetime | None = None
     current_message_id: int | None = None
     pending_safe_tx_id: str | None = None
@@ -209,6 +210,9 @@ class UserState:
             state=state,
             notification_count=int(data.get("notification_count", 0)),
             low_cooldown_until=parse_datetime(data.get("low_cooldown_until")),
+            low_balance_snoozed_until=parse_datetime(
+                data.get("low_balance_snoozed_until")
+            ),
             tx_reminder_until=parse_datetime(data.get("tx_reminder_until")),
             current_message_id=None
             if state is BotState.SAFE_TX_PENDING
@@ -234,6 +238,9 @@ class UserState:
             "state": self.state.value,
             "notification_count": self.notification_count,
             "low_cooldown_until": format_datetime(self.low_cooldown_until),
+            "low_balance_snoozed_until": format_datetime(
+                self.low_balance_snoozed_until
+            ),
             "tx_reminder_until": format_datetime(self.tx_reminder_until),
             "current_message_id": self.current_message_id,
             "pending_safe_tx_id": self.pending_safe_tx_id,
@@ -253,6 +260,7 @@ class UserState:
         self.state = BotState.NOT_STARTED
         self.notification_count = 0
         self.low_cooldown_until = None
+        self.low_balance_snoozed_until = None
         self.tx_reminder_until = None
         self.current_message_id = None
         self.pending_safe_tx_id = None

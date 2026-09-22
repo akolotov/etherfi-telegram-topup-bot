@@ -14,7 +14,7 @@ class Clock(Protocol):
 
 class TelegramGateway(Protocol):
     async def send_low_balance_prompt(self, user: UserConfig, balance: Decimal) -> int:
-        """Send a low-balance message with Top Up and Ignore buttons."""
+        """Send a low-balance message with Top Up and ignore buttons."""
 
     async def send_safe_tx_created(self, user: UserConfig, safe_tx_id: str) -> int:
         """Notify the user that a Safe transaction exists and needs signatures."""

@@ -143,6 +143,19 @@ class BotDispatcher:
             return None
         return await self.fsm.callback_ignore(user, message_id)
 
+    async def callback_ignore_for_24h(
+        self, telegram_user_id: int, message_id: int
+    ) -> UserState | None:
+        user = self._configured_user(telegram_user_id)
+        if user is None:
+            self._log_unknown_user(
+                "callback_ignore_for_24h",
+                telegram_user_id,
+                message_id=message_id,
+            )
+            return None
+        return await self.fsm.callback_ignore_for_24h(user, message_id)
+
     async def user_blocked(self, telegram_user_id: int) -> UserState | None:
         user = self._configured_user(telegram_user_id)
         if user is None:

@@ -28,6 +28,7 @@ async def test_ptb_gateway_sends_messages_and_edits_markup() -> None:
     assert send_call["chat_id"] == user.telegram_user_id
     keyboard = send_call["reply_markup"].inline_keyboard
     assert [button.callback_data for button in keyboard[0]] == ["top_up", "ignore"]
+    assert [button.callback_data for button in keyboard[1]] == ["ignore_for_24h"]
     bot.edit_message_reply_markup.assert_awaited_once_with(
         chat_id=user.telegram_user_id,
         message_id=42,

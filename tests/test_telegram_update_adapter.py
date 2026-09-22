@@ -108,6 +108,27 @@ async def test_callback_ack_failure_does_not_undo_dispatch(tmp_path) -> None:
     assert len(safe.created_txs) == 1
 
 
+async def test_ignore_for_24h_callback_is_dispatched(tmp_path) -> None:
+    user = make_user(telegram_user_id=1001)
+    dispatcher, states, _telegram, balances, *_ = make_dispatcher(tmp_path, [user])
+    bot = RecordingBot()
+    adapter = TelegramUpdateAdapter(dispatcher)
+    await dispatcher.start(user.telegram_user_id)
+    balances.set_balance(user.target_account, "1")
+    prompt = await dispatcher.balance_tick(user.telegram_user_id)
+    payload = load_fixture("callback_query_ignore")
+    payload["callback_query"]["message"]["message_id"] = prompt.current_message_id
+    payload["callback_query"]["data"] = "ignore_for_24h"
+
+    action = await adapter.handle_update(ptb_update(payload, bot))
+
+    state = states.load(user.telegram_user_id)
+    assert action == "callback_ignore_for_24h"
+    assert state.state is BotState.MONITORING
+    assert state.low_balance_snoozed_until is not None
+    assert bot.callback_ids == [payload["callback_query"]["id"]]
+
+
 async def test_stale_group_and_unsupported_callbacks_are_noops(tmp_path) -> None:
     user = make_user(telegram_user_id=1001)
     dispatcher, states, _telegram, balances, safe, *_ = make_dispatcher(tmp_path, [user])

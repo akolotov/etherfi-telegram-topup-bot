@@ -27,6 +27,7 @@ def test_dispatcher_ignores_unknown_users_and_starts_configured(tmp_path) -> Non
     assert dispatcher.start(9999) is None
     assert dispatcher.callback_top_up(9999, 1) is None
     assert dispatcher.callback_ignore(9999, 1) is None
+    assert dispatcher.callback_ignore_for_24h(9999, 1) is None
     assert dispatcher.ignore_event(9999) is None
     assert states.list_states() == []
     assert telegram.messages == []
