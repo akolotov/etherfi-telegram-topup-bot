@@ -1,6 +1,7 @@
 services:
   etherfi-topup-bot:
     image: ${ETHERFI_TOPUP_BOT_IMAGE:-ghcr.io/akolotov/etherfi-telegram-topup-bot:latest}
+    pull_policy: ${ETHERFI_TOPUP_BOT_PULL_POLICY:-always}
     restart: unless-stopped
     init: true
     logging:

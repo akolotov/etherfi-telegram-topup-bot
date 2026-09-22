@@ -190,16 +190,20 @@ GitHub Actions publishes multi-platform images to GitHub Container Registry:
 `ghcr.io/akolotov/etherfi-telegram-topup-bot`
 
 Each push to `main` publishes the temporary `main` tag. Pushing a release tag
-such as `v1.2.3` publishes `1.2.3`, `1.2`, `1`, and `latest`. The Compose
-deployment uses `latest`, so update it with `docker compose pull` before
-recreating the service.
+such as `v1.2.3` publishes `1.2.3`, `1.2`, `1`, and `latest`. Compose uses
+`latest` by default and pulls it before startup.
 
-To build the local source instead, use the same image name that Compose uses,
-then create the host state directory:
+To build and run the local source, use the shared local tag, set the matching
+Compose variables in `.env`, and create the host state directory:
 
 ```bash
-docker build -t ghcr.io/akolotov/etherfi-telegram-topup-bot:latest .
+docker build -t etherfi-topup-bot:local .
 mkdir -p bot-state
+```
+
+```dotenv
+ETHERFI_TOPUP_BOT_IMAGE=etherfi-topup-bot:local
+ETHERFI_TOPUP_BOT_PULL_POLICY=never
 ```
 
 To test a published `main` image and retain that exact local copy after a
@@ -209,6 +213,9 @@ future `main` update, create a local snapshot tag:
 docker pull ghcr.io/akolotov/etherfi-telegram-topup-bot:main
 docker tag ghcr.io/akolotov/etherfi-telegram-topup-bot:main etherfi-topup-bot:main-snapshot
 ```
+
+Then set `ETHERFI_TOPUP_BOT_IMAGE=etherfi-topup-bot:main-snapshot` and
+`ETHERFI_TOPUP_BOT_PULL_POLICY=never` in `.env`.
 
 Docker runtime files stay outside the image. Provide `.env`, `data/config.json`,
 and one proposer private key file per configured user, for example
