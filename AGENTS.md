@@ -1,39 +1,33 @@
-virtualenv is used in the project
+# Development
+
+Use `.venv` for all local Python commands.
 
 ## Docker Compose test runtime
 
-Use the project's virtual environment for local Python commands.
+Before starting Compose, verify `.env` routing and paths,
+`data/config.json` proposer-key paths, `.secrets/` filenames, and config/state
+mounts without printing secrets.
 
-Before starting the bot through Docker Compose, inspect the current local
-runtime wiring without printing secret values:
+Use one shared test stack across agent sessions:
 
-- `.env` values needed for routing and paths;
-- `data/config.json`, especially each `safe_proposer_key_file`;
-- available files under `.secrets/`;
-- config and state mounts.
+- build only as `etherfi-topup-bot:local`; never add agent, task, or session tags;
+- keep `COMPOSE_PROJECT_NAME=etherfi-topup-bot-test`,
+  `ETHERFI_TOPUP_BOT_IMAGE=etherfi-topup-bot:local`, and
+  `ETHERFI_TOPUP_BOT_PULL_POLICY=never` in `.env`;
+- reuse `docker-compose.agent.local.yml`; keep it non-secret and do not delete it
+  during cleanup.
 
-Use `docker-compose.agent.local.yml` together with `docker-compose.yml` for
-local test runs. This ignored, persistent file carries only host-specific
-wiring for the current working copy. If it already exists, reuse it and change
-only the minimum needed to keep it aligned with the current local config. Do
-not delete it during normal test cleanup. Do not put key, token, or secret
-values into it.
+Production and test must use different Compose project names, Telegram bot
+tokens, Docker aliases, webhook paths, and webhook secrets.
 
-When testing a locally built bot image, set `ETHERFI_TOPUP_BOT_IMAGE` to the
-exact local image tag for both Compose commands below. This must override the
-default registry image; for example, `export ETHERFI_TOPUP_BOT_IMAGE=etherfi-topup-bot:local`.
-
-Validate and start the configured bot with:
+Build, validate, and start with:
 
 ```bash
+docker build -t etherfi-topup-bot:local .
 docker compose -f docker-compose.yml -f docker-compose.agent.local.yml config -q
 docker compose -f docker-compose.yml -f docker-compose.agent.local.yml up -d
 ```
 
-Never replace the configured bot with an empty or synthetic configuration and
-do not bypass this stack with `docker run` when testing the configured bot.
-
-If the harness or guardrails block the Compose start, do not look for a
-workaround. Tell the user the exact Compose command to run, identify its
-read-only mounts and external effects, and wait for confirmation before
-continuing logs, webhook delivery, or runtime verification.
+Never use `docker run` or synthetic configuration. If Compose start is blocked,
+report the command, read-only mounts, and external effects; wait for the user to
+run it before checking logs or webhook delivery.
