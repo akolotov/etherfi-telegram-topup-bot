@@ -197,6 +197,7 @@ def build_runtime(settings: RuntimeSettings) -> RuntimeComponents:
     optimism_rpc = BlockscoutJsonRpcClient(
         settings.blockscout_pro_api_key,
         chain_id=OPTIMISM_CHAIN_ID,
+        fallback_url=settings.optimism_rpc_fallback_url,
         max_attempts=settings.blockscout_max_attempts,
         retry_initial_delay_seconds=settings.blockscout_retry_initial_delay_seconds,
         retry_backoff_factor=settings.blockscout_retry_backoff_factor,
@@ -207,6 +208,7 @@ def build_runtime(settings: RuntimeSettings) -> RuntimeComponents:
     arbitrum_rpc = BlockscoutJsonRpcClient(
         settings.blockscout_pro_api_key,
         chain_id=str(ARBITRUM_CHAIN_ID),
+        fallback_url=settings.arbitrum_rpc_fallback_url,
         max_attempts=settings.blockscout_max_attempts,
         retry_initial_delay_seconds=settings.blockscout_retry_initial_delay_seconds,
         retry_backoff_factor=settings.blockscout_retry_backoff_factor,

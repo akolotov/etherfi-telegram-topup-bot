@@ -71,6 +71,57 @@ def test_runtime_settings_reads_blockscout_retry_configuration(tmp_path) -> None
     assert settings.blockscout_max_attempts == 4
     assert settings.blockscout_retry_initial_delay_seconds == 0.25
     assert settings.blockscout_retry_backoff_factor == 1.5
+    assert settings.optimism_rpc_fallback_url == "https://mainnet.optimism.io"
+    assert settings.arbitrum_rpc_fallback_url == "https://arb1.arbitrum.io/rpc"
+
+
+def test_runtime_settings_reads_and_disables_rpc_fallback_urls(tmp_path) -> None:
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "\n".join(
+            [
+                "BOT_TOKEN=123:ABC",
+                "BLOCKSCOUT_PRO_API_KEY=proapi_file_key",
+                "SAFE_TRANSACTION_SERVICE_API_KEY=safe_file_key",
+                "OPTIMISM_RPC_FALLBACK_URL=https://optimism.example.test/rpc/",
+                "ARBITRUM_RPC_FALLBACK_URL=",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    settings = RuntimeSettings.from_env_file(env_path, environ={})
+
+    assert settings.optimism_rpc_fallback_url == "https://optimism.example.test/rpc"
+    assert settings.arbitrum_rpc_fallback_url is None
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("OPTIMISM_RPC_FALLBACK_URL", "http://optimism.example.test"),
+        ("ARBITRUM_RPC_FALLBACK_URL", "https://user:pass@arbitrum.example.test"),
+        ("ARBITRUM_RPC_FALLBACK_URL", "https://arbitrum.example.test?key=secret"),
+    ],
+)
+def test_runtime_settings_rejects_invalid_rpc_fallback_url(
+    tmp_path, key: str, value: str
+) -> None:
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "\n".join(
+            [
+                "BOT_TOKEN=123:ABC",
+                "BLOCKSCOUT_PRO_API_KEY=proapi_file_key",
+                "SAFE_TRANSACTION_SERVICE_API_KEY=safe_file_key",
+                f"{key}={value}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match=key):
+        RuntimeSettings.from_env_file(env_path, environ={})
 
 
 @pytest.mark.parametrize(

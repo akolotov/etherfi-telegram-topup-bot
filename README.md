@@ -111,6 +111,10 @@ Useful environment overrides:
 - `BLOCKSCOUT_MAX_ATTEMPTS`: total attempts for a transient Blockscout request, default `3`
 - `BLOCKSCOUT_RETRY_INITIAL_DELAY_SECONDS`: wait before the first retry, default `0.5`
 - `BLOCKSCOUT_RETRY_BACKOFF_FACTOR`: multiplier for each subsequent retry delay, default `2`
+- `OPTIMISM_RPC_FALLBACK_URL`: unauthenticated RPC used after transient Blockscout
+  failures, default `https://mainnet.optimism.io`; set empty to disable
+- `ARBITRUM_RPC_FALLBACK_URL`: unauthenticated RPC used after transient Blockscout
+  failures, default `https://arb1.arbitrum.io/rpc`; set empty to disable
 
 ## Webhook through Tailscale Funnel
 

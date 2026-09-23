@@ -109,21 +109,109 @@ async def test_json_rpc_client_retries_429_and_5xx_with_async_backoff() -> None:
     await http_client.aclose()
 
 
+async def test_json_rpc_client_uses_unauthenticated_fallback_after_transient_failure(
+) -> None:
+    primary_requests: list[httpx.Request] = []
+    fallback_requests: list[httpx.Request] = []
+    delays: list[float] = []
+
+    async def primary_handler(request: httpx.Request) -> httpx.Response:
+        primary_requests.append(request)
+        return httpx.Response(503, json={"error": "upstream unavailable"})
+
+    async def fallback_handler(request: httpx.Request) -> httpx.Response:
+        fallback_requests.append(request)
+        return httpx.Response(200, json={"result": "0x1234"})
+
+    async def sleeper(delay: float) -> None:
+        delays.append(delay)
+
+    primary_client = httpx.AsyncClient(transport=httpx.MockTransport(primary_handler))
+    fallback_client = httpx.AsyncClient(transport=httpx.MockTransport(fallback_handler))
+    client = BlockscoutJsonRpcClient(
+        "proapi_test",
+        chain_id="42161",
+        fallback_url="https://arb1.arbitrum.io/rpc",
+        client=primary_client,
+        fallback_client=fallback_client,
+        max_attempts=2,
+        sleeper=sleeper,
+    )
+
+    assert await client.eth_call(to="0xabc", data="0x01") == "0x1234"
+    assert len(primary_requests) == 2
+    assert len(fallback_requests) == 1
+    assert all(
+        request.headers["Authorization"] == "Bearer proapi_test"
+        for request in primary_requests
+    )
+    assert "Authorization" not in fallback_requests[0].headers
+    assert str(fallback_requests[0].url) == "https://arb1.arbitrum.io/rpc"
+    assert fallback_requests[0].headers["User-Agent"] == USER_AGENT
+    assert delays == [0.5]
+    await primary_client.aclose()
+    await fallback_client.aclose()
+
+
+async def test_json_rpc_client_uses_fallback_for_transient_json_rpc_error() -> None:
+    fallback_calls = 0
+
+    async def primary_handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"error": {"code": -32603, "message": "upstream internal error"}},
+        )
+
+    async def fallback_handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal fallback_calls
+        fallback_calls += 1
+        return httpx.Response(200, json={"result": "0x02"})
+
+    primary_client = httpx.AsyncClient(transport=httpx.MockTransport(primary_handler))
+    fallback_client = httpx.AsyncClient(transport=httpx.MockTransport(fallback_handler))
+    client = BlockscoutJsonRpcClient(
+        "proapi_test",
+        fallback_url="https://rpc.example.test",
+        client=primary_client,
+        fallback_client=fallback_client,
+        max_attempts=1,
+    )
+
+    assert await client.eth_call(to="0xabc", data="0x01") == "0x02"
+    assert fallback_calls == 1
+    await primary_client.aclose()
+    await fallback_client.aclose()
+
+
 async def test_json_rpc_client_does_not_retry_non_transient_http_error() -> None:
     calls = 0
+    fallback_calls = 0
 
     async def handler(_request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
         return httpx.Response(401, json={"error": "invalid key"})
 
+    async def fallback_handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal fallback_calls
+        fallback_calls += 1
+        return httpx.Response(200, json={"result": "0x01"})
+
     http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    client = BlockscoutJsonRpcClient("proapi_test", client=http_client)
+    fallback_client = httpx.AsyncClient(transport=httpx.MockTransport(fallback_handler))
+    client = BlockscoutJsonRpcClient(
+        "proapi_test",
+        fallback_url="https://rpc.example.test",
+        client=http_client,
+        fallback_client=fallback_client,
+    )
 
     with pytest.raises(BlockscoutJsonRpcError, match="HTTP 401 after 1 attempt"):
         await client.eth_call(to="0xabc", data="0x01")
     assert calls == 1
+    assert fallback_calls == 0
     await http_client.aclose()
+    await fallback_client.aclose()
 
 
 async def test_json_rpc_client_rejects_invalid_response() -> None:
