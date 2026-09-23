@@ -153,6 +153,51 @@ async def test_json_rpc_client_uses_unauthenticated_fallback_after_transient_fai
     await fallback_client.aclose()
 
 
+async def test_json_rpc_client_bypasses_primary_during_fallback_cooldown() -> None:
+    now = [100.0]
+    primary_calls = 0
+    fallback_calls = 0
+
+    async def primary_handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal primary_calls
+        primary_calls += 1
+        if primary_calls == 1:
+            return httpx.Response(503, json={"error": "upstream unavailable"})
+        return httpx.Response(200, json={"result": "0x03"})
+
+    async def fallback_handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal fallback_calls
+        fallback_calls += 1
+        return httpx.Response(200, json={"result": "0x02"})
+
+    primary_client = httpx.AsyncClient(transport=httpx.MockTransport(primary_handler))
+    fallback_client = httpx.AsyncClient(transport=httpx.MockTransport(fallback_handler))
+    client = BlockscoutJsonRpcClient(
+        "proapi_test",
+        fallback_url="https://rpc.example.test",
+        fallback_cooldown_seconds=300,
+        client=primary_client,
+        fallback_client=fallback_client,
+        max_attempts=1,
+        monotonic_clock=lambda: now[0],
+    )
+
+    assert await client.eth_call(to="0xabc", data="0x01") == "0x02"
+    assert await client.eth_call(to="0xabc", data="0x01") == "0x02"
+    now[0] += 299
+    assert await client.eth_call(to="0xabc", data="0x01") == "0x02"
+    assert primary_calls == 1
+    assert fallback_calls == 3
+
+    now[0] += 1
+    assert await client.eth_call(to="0xabc", data="0x01") == "0x03"
+    assert await client.eth_call(to="0xabc", data="0x01") == "0x03"
+    assert primary_calls == 3
+    assert fallback_calls == 3
+    await primary_client.aclose()
+    await fallback_client.aclose()
+
+
 async def test_json_rpc_client_uses_fallback_for_transient_json_rpc_error() -> None:
     fallback_calls = 0
 

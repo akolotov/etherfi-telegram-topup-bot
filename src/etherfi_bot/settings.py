@@ -31,6 +31,7 @@ class RuntimeSettings:
     blockscout_max_attempts: int = 3
     blockscout_retry_initial_delay_seconds: float = 0.5
     blockscout_retry_backoff_factor: float = 2
+    blockscout_fallback_cooldown_seconds: float = 300
     optimism_rpc_fallback_url: str | None = OPTIMISM_PUBLIC_RPC_URL
     arbitrum_rpc_fallback_url: str | None = ARBITRUM_PUBLIC_RPC_URL
     log_level: str = "INFO"
@@ -87,6 +88,9 @@ class RuntimeSettings:
         blockscout_retry_backoff_factor = float(
             values.get("BLOCKSCOUT_RETRY_BACKOFF_FACTOR", "2")
         )
+        blockscout_fallback_cooldown_seconds = float(
+            values.get("BLOCKSCOUT_FALLBACK_COOLDOWN_SECONDS", "300")
+        )
         if blockscout_max_attempts < 1:
             raise RuntimeError("BLOCKSCOUT_MAX_ATTEMPTS must be >= 1")
         if (
@@ -102,6 +106,13 @@ class RuntimeSettings:
         ):
             raise RuntimeError(
                 "BLOCKSCOUT_RETRY_BACKOFF_FACTOR must be finite and >= 1"
+            )
+        if (
+            not isfinite(blockscout_fallback_cooldown_seconds)
+            or blockscout_fallback_cooldown_seconds < 0
+        ):
+            raise RuntimeError(
+                "BLOCKSCOUT_FALLBACK_COOLDOWN_SECONDS must be finite and >= 0"
             )
         optimism_rpc_fallback_url = _optional_https_url(
             values.get("OPTIMISM_RPC_FALLBACK_URL", OPTIMISM_PUBLIC_RPC_URL),
@@ -134,6 +145,9 @@ class RuntimeSettings:
             blockscout_max_attempts=blockscout_max_attempts,
             blockscout_retry_initial_delay_seconds=blockscout_retry_initial_delay_seconds,
             blockscout_retry_backoff_factor=blockscout_retry_backoff_factor,
+            blockscout_fallback_cooldown_seconds=(
+                blockscout_fallback_cooldown_seconds
+            ),
             optimism_rpc_fallback_url=optimism_rpc_fallback_url,
             arbitrum_rpc_fallback_url=arbitrum_rpc_fallback_url,
             log_level=values.get("LOG_LEVEL", "INFO"),

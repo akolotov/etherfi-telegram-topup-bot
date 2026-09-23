@@ -61,6 +61,7 @@ def test_runtime_settings_reads_blockscout_retry_configuration(tmp_path) -> None
                 "BLOCKSCOUT_MAX_ATTEMPTS=4",
                 "BLOCKSCOUT_RETRY_INITIAL_DELAY_SECONDS=0.25",
                 "BLOCKSCOUT_RETRY_BACKOFF_FACTOR=1.5",
+                "BLOCKSCOUT_FALLBACK_COOLDOWN_SECONDS=120",
             ]
         ),
         encoding="utf-8",
@@ -71,6 +72,7 @@ def test_runtime_settings_reads_blockscout_retry_configuration(tmp_path) -> None
     assert settings.blockscout_max_attempts == 4
     assert settings.blockscout_retry_initial_delay_seconds == 0.25
     assert settings.blockscout_retry_backoff_factor == 1.5
+    assert settings.blockscout_fallback_cooldown_seconds == 120
     assert settings.optimism_rpc_fallback_url == "https://mainnet.optimism.io"
     assert settings.arbitrum_rpc_fallback_url == "https://arb1.arbitrum.io/rpc"
 
@@ -131,6 +133,9 @@ def test_runtime_settings_rejects_invalid_rpc_fallback_url(
         ("BLOCKSCOUT_RETRY_INITIAL_DELAY_SECONDS", "inf"),
         ("BLOCKSCOUT_RETRY_BACKOFF_FACTOR", "nan"),
         ("BLOCKSCOUT_RETRY_BACKOFF_FACTOR", "inf"),
+        ("BLOCKSCOUT_FALLBACK_COOLDOWN_SECONDS", "nan"),
+        ("BLOCKSCOUT_FALLBACK_COOLDOWN_SECONDS", "inf"),
+        ("BLOCKSCOUT_FALLBACK_COOLDOWN_SECONDS", "-1"),
     ],
 )
 def test_runtime_settings_rejects_non_finite_blockscout_retry_configuration(
