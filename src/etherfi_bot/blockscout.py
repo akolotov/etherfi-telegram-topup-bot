@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from decimal import Decimal
 from math import isfinite
+from time import monotonic
 from typing import Any, Awaitable, Callable, Iterable, Protocol
 from urllib.parse import quote
 
@@ -15,6 +17,9 @@ from etherfi_bot.evm import checksum, encode_contract_method, uint256_from_hex
 OPTIMISM_CHAIN_ID = "10"
 BLOCKSCOUT_BASE_URL = "https://api.blockscout.com"
 USER_AGENT = "etherfi-topup-bot/0.1.0"
+
+
+logger = logging.getLogger(__name__)
 
 
 class Erc20BalanceReader(Protocol):
@@ -102,6 +107,10 @@ class BlockscoutErc20BalanceReader:
 class BlockscoutJsonRpcError(RuntimeError):
     """A Blockscout PRO JSON-RPC request failed or returned invalid data."""
 
+    def __init__(self, message: str, *, retryable: bool = False) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+
 
 class BlockscoutJsonRpcClient:
     def __init__(
@@ -110,12 +119,16 @@ class BlockscoutJsonRpcClient:
         *,
         base_url: str = BLOCKSCOUT_BASE_URL,
         chain_id: str = "42161",
+        fallback_url: str | None = None,
+        fallback_cooldown_seconds: float = 300,
         timeout_seconds: float = 10,
         max_attempts: int = 3,
         retry_initial_delay_seconds: float = 0.5,
         retry_backoff_factor: float = 2,
         client: httpx.AsyncClient | None = None,
+        fallback_client: httpx.AsyncClient | None = None,
         sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        monotonic_clock: Callable[[], float] = monotonic,
     ) -> None:
         if not api_key:
             raise ValueError("api_key must not be empty")
@@ -125,8 +138,19 @@ class BlockscoutJsonRpcClient:
             raise ValueError("retry_initial_delay_seconds must be finite and >= 0")
         if not isfinite(retry_backoff_factor) or retry_backoff_factor < 1:
             raise ValueError("retry_backoff_factor must be finite and >= 1")
+        if not isfinite(fallback_cooldown_seconds) or fallback_cooldown_seconds < 0:
+            raise ValueError("fallback_cooldown_seconds must be finite and >= 0")
+        normalized_fallback_url = (fallback_url or "").strip() or None
+        if fallback_client is not None and normalized_fallback_url is None:
+            raise ValueError("fallback_url is required with fallback_client")
+        self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._chain_id = str(chain_id)
+        self._fallback_url = normalized_fallback_url
+        self._fallback_cooldown_seconds = fallback_cooldown_seconds
+        self._monotonic = monotonic_clock
+        self._primary_retry_at = 0.0
+        self._primary_probe_lock = asyncio.Lock()
         self._max_attempts = max_attempts
         self._retry_initial_delay_seconds = retry_initial_delay_seconds
         self._retry_backoff_factor = retry_backoff_factor
@@ -135,12 +159,25 @@ class BlockscoutJsonRpcClient:
         self._client = client or httpx.AsyncClient(timeout=timeout_seconds)
         self._client.headers.update(
             {
-                "Authorization": f"Bearer {api_key}",
                 "Accept": "application/json",
                 "Content-Type": "application/json",
                 "User-Agent": USER_AGENT,
             }
         )
+        self._owns_fallback_client = (
+            self._fallback_url is not None and fallback_client is None
+        )
+        self._fallback_client = fallback_client
+        if self._fallback_url is not None and self._fallback_client is None:
+            self._fallback_client = httpx.AsyncClient(timeout=timeout_seconds)
+        if self._fallback_client is not None:
+            self._fallback_client.headers.update(
+                {
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                    "User-Agent": USER_AGENT,
+                }
+            )
 
     async def eth_call(
         self,
@@ -159,35 +196,128 @@ class BlockscoutJsonRpcClient:
             "params": [{"to": to, "data": data_hex}, block],
         }
         url = f"{self._base_url}/{quote(self._chain_id, safe='')}/json-rpc"
+        if self._should_bypass_primary():
+            return await self._call_fallback(payload)
+        if self._primary_retry_at > 0:
+            async with self._primary_probe_lock:
+                if self._should_bypass_primary():
+                    return await self._call_fallback(payload)
+                return await self._call_primary_or_fallback(url, payload)
+        return await self._call_primary_or_fallback(url, payload)
+
+    def _should_bypass_primary(self) -> bool:
+        return (
+            self._fallback_url is not None
+            and self._monotonic() < self._primary_retry_at
+        )
+
+    async def _call_primary_or_fallback(
+        self, url: str, payload: dict[str, Any]
+    ) -> str:
+        try:
+            result = await self._post_with_retries(
+                client=self._client,
+                url=url,
+                payload=payload,
+                provider_name="Blockscout JSON-RPC",
+                headers={"Authorization": f"Bearer {self._api_key}"},
+            )
+        except BlockscoutJsonRpcError as error:
+            if not error.retryable or self._fallback_url is None:
+                self._primary_retry_at = 0.0
+                raise
+            primary_failure = error
+        else:
+            if self._primary_retry_at > 0:
+                logger.info(
+                    "blockscout_json_rpc_primary_restored chain_id=%s",
+                    self._chain_id,
+                )
+            self._primary_retry_at = 0.0
+            return result
+
+        self._primary_retry_at = (
+            self._monotonic() + self._fallback_cooldown_seconds
+        )
+        logger.warning(
+            "blockscout_json_rpc_fallback_activated chain_id=%s "
+            "cooldown_seconds=%s primary_error=%s",
+            self._chain_id,
+            self._fallback_cooldown_seconds,
+            primary_failure,
+        )
+        return await self._call_fallback(payload, primary_failure=primary_failure)
+
+    async def _call_fallback(
+        self,
+        payload: dict[str, Any],
+        *,
+        primary_failure: BlockscoutJsonRpcError | None = None,
+    ) -> str:
+        assert self._fallback_client is not None
+        assert self._fallback_url is not None
+        try:
+            return await self._post_with_retries(
+                client=self._fallback_client,
+                url=self._fallback_url,
+                payload=payload,
+                provider_name="Fallback JSON-RPC",
+            )
+        except BlockscoutJsonRpcError as fallback_error:
+            if primary_failure is None:
+                raise
+            raise BlockscoutJsonRpcError(
+                f"{primary_failure}; fallback RPC failed: {fallback_error}",
+                retryable=fallback_error.retryable,
+            ) from fallback_error
+
+    async def _post_with_retries(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        url: str,
+        payload: dict[str, Any],
+        provider_name: str,
+        headers: dict[str, str] | None = None,
+    ) -> str:
         for attempt in range(1, self._max_attempts + 1):
             try:
-                response = await self._client.post(url, json=payload)
+                response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
             except httpx.HTTPStatusError as error:
                 status_code = error.response.status_code
                 request_cause: Exception = error
                 request_error = BlockscoutJsonRpcError(
-                    f"Blockscout JSON-RPC request failed with HTTP {status_code}"
+                    f"{provider_name} request failed with HTTP {status_code}",
+                    retryable=status_code == 429 or 500 <= status_code < 600,
                 )
-                retryable = status_code == 429 or 500 <= status_code < 600
             except httpx.RequestError as error:
                 request_cause = error
                 request_error = BlockscoutJsonRpcError(
-                    "Blockscout JSON-RPC request failed"
+                    f"{provider_name} request failed",
+                    retryable=True,
                 )
-                retryable = True
             else:
                 try:
                     return _extract_eth_call_result(response.json())
                 except (TypeError, ValueError) as error:
-                    raise BlockscoutJsonRpcError(
-                        "Blockscout JSON-RPC response is invalid "
-                        f"after {attempt} attempt{'s' if attempt != 1 else ''}"
-                    ) from error
+                    if _is_retryable_json_rpc_error(response):
+                        request_cause = error
+                        request_error = BlockscoutJsonRpcError(
+                            f"{provider_name} returned a transient error",
+                            retryable=True,
+                        )
+                    else:
+                        raise BlockscoutJsonRpcError(
+                            f"{provider_name} response is invalid "
+                            f"after {attempt} attempt{'s' if attempt != 1 else ''}"
+                        ) from error
 
-            if not retryable or attempt == self._max_attempts:
+            if not request_error.retryable or attempt == self._max_attempts:
                 raise BlockscoutJsonRpcError(
-                    f"{request_error} after {attempt} attempt{'s' if attempt != 1 else ''}"
+                    f"{request_error} after {attempt} "
+                    f"attempt{'s' if attempt != 1 else ''}",
+                    retryable=request_error.retryable,
                 ) from request_cause
             await self._sleeper(
                 self._retry_initial_delay_seconds
@@ -197,8 +327,36 @@ class BlockscoutJsonRpcClient:
         raise AssertionError("unreachable")
 
     async def aclose(self) -> None:
+        close_tasks = []
         if self._owns_client:
-            await self._client.aclose()
+            close_tasks.append(self._client.aclose())
+        if self._owns_fallback_client:
+            assert self._fallback_client is not None
+            close_tasks.append(self._fallback_client.aclose())
+        if close_tasks:
+            await asyncio.gather(*close_tasks)
+
+
+def _is_retryable_json_rpc_error(response: httpx.Response) -> bool:
+    try:
+        data = response.json()
+    except ValueError:
+        return False
+    if not isinstance(data, dict) or "error" not in data:
+        return False
+    error_text = str(data["error"]).lower()
+    return any(
+        marker in error_text
+        for marker in (
+            "internal error",
+            "internal server error",
+            "upstream",
+            "timeout",
+            "temporar",
+            "unavailable",
+            "rate limit",
+        )
+    )
 
 
 def _extract_eth_call_result(data: Any) -> str:

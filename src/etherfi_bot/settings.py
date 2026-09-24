@@ -8,6 +8,12 @@ from pathlib import Path
 from typing import Mapping
 from urllib.parse import urlsplit
 
+import httpx
+
+
+OPTIMISM_PUBLIC_RPC_URL = "https://mainnet.optimism.io"
+ARBITRUM_PUBLIC_RPC_URL = "https://arb1.arbitrum.io/rpc"
+
 
 @dataclass(frozen=True)
 class RuntimeSettings:
@@ -27,6 +33,9 @@ class RuntimeSettings:
     blockscout_max_attempts: int = 3
     blockscout_retry_initial_delay_seconds: float = 0.5
     blockscout_retry_backoff_factor: float = 2
+    blockscout_fallback_cooldown_seconds: float = 300
+    optimism_rpc_fallback_url: str | None = OPTIMISM_PUBLIC_RPC_URL
+    arbitrum_rpc_fallback_url: str | None = ARBITRUM_PUBLIC_RPC_URL
     log_level: str = "INFO"
     mini_app_public_url: str | None = None
 
@@ -81,6 +90,9 @@ class RuntimeSettings:
         blockscout_retry_backoff_factor = float(
             values.get("BLOCKSCOUT_RETRY_BACKOFF_FACTOR", "2")
         )
+        blockscout_fallback_cooldown_seconds = float(
+            values.get("BLOCKSCOUT_FALLBACK_COOLDOWN_SECONDS", "300")
+        )
         if blockscout_max_attempts < 1:
             raise RuntimeError("BLOCKSCOUT_MAX_ATTEMPTS must be >= 1")
         if (
@@ -97,6 +109,21 @@ class RuntimeSettings:
             raise RuntimeError(
                 "BLOCKSCOUT_RETRY_BACKOFF_FACTOR must be finite and >= 1"
             )
+        if (
+            not isfinite(blockscout_fallback_cooldown_seconds)
+            or blockscout_fallback_cooldown_seconds < 0
+        ):
+            raise RuntimeError(
+                "BLOCKSCOUT_FALLBACK_COOLDOWN_SECONDS must be finite and >= 0"
+            )
+        optimism_rpc_fallback_url = _optional_https_url(
+            values.get("OPTIMISM_RPC_FALLBACK_URL", OPTIMISM_PUBLIC_RPC_URL),
+            "OPTIMISM_RPC_FALLBACK_URL",
+        )
+        arbitrum_rpc_fallback_url = _optional_https_url(
+            values.get("ARBITRUM_RPC_FALLBACK_URL", ARBITRUM_PUBLIC_RPC_URL),
+            "ARBITRUM_RPC_FALLBACK_URL",
+        )
         return cls(
             bot_token=bot_token,
             blockscout_pro_api_key=blockscout_pro_api_key,
@@ -120,6 +147,11 @@ class RuntimeSettings:
             blockscout_max_attempts=blockscout_max_attempts,
             blockscout_retry_initial_delay_seconds=blockscout_retry_initial_delay_seconds,
             blockscout_retry_backoff_factor=blockscout_retry_backoff_factor,
+            blockscout_fallback_cooldown_seconds=(
+                blockscout_fallback_cooldown_seconds
+            ),
+            optimism_rpc_fallback_url=optimism_rpc_fallback_url,
+            arbitrum_rpc_fallback_url=arbitrum_rpc_fallback_url,
             log_level=values.get("LOG_LEVEL", "INFO"),
             mini_app_public_url=mini_app_public_url or None,
         )
@@ -161,6 +193,31 @@ def _looks_like_blockscout_key(value: str) -> bool:
 
 def _looks_like_safe_transaction_service_key(value: str) -> bool:
     return bool(value and value.strip() and value.strip() != "...")
+
+
+def _optional_https_url(value: str, setting_name: str) -> str | None:
+    url = value.strip()
+    if not url:
+        return None
+    try:
+        parsed = urlsplit(url)
+        http_url = httpx.URL(url)
+    except (ValueError, httpx.InvalidURL) as error:
+        raise RuntimeError(
+            f"{setting_name} must be an HTTPS URL without credentials, query, or fragment"
+        ) from error
+    if (
+        parsed.scheme != "https"
+        or not http_url.host
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise RuntimeError(
+            f"{setting_name} must be an HTTPS URL without credentials, query, or fragment"
+        )
+    return url
 
 
 def _validate_webhook_settings(
