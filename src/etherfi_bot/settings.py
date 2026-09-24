@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Mapping
 from urllib.parse import urlsplit
 
+import httpx
+
 
 OPTIMISM_PUBLIC_RPC_URL = "https://mainnet.optimism.io"
 ARBITRUM_PUBLIC_RPC_URL = "https://arb1.arbitrum.io/rpc"
@@ -197,10 +199,16 @@ def _optional_https_url(value: str, setting_name: str) -> str | None:
     url = value.strip().rstrip("/")
     if not url:
         return None
-    parsed = urlsplit(url)
+    try:
+        parsed = urlsplit(url)
+        http_url = httpx.URL(url)
+    except (ValueError, httpx.InvalidURL) as error:
+        raise RuntimeError(
+            f"{setting_name} must be an HTTPS URL without credentials, query, or fragment"
+        ) from error
     if (
         parsed.scheme != "https"
-        or not parsed.netloc
+        or not http_url.host
         or parsed.username is not None
         or parsed.password is not None
         or parsed.query

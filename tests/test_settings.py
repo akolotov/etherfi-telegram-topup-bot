@@ -102,7 +102,9 @@ def test_runtime_settings_reads_and_disables_rpc_fallback_urls(tmp_path) -> None
     ("key", "value"),
     [
         ("OPTIMISM_RPC_FALLBACK_URL", "http://optimism.example.test"),
+        ("OPTIMISM_RPC_FALLBACK_URL", "https://optimism.example.test:bad"),
         ("ARBITRUM_RPC_FALLBACK_URL", "https://user:pass@arbitrum.example.test"),
+        ("ARBITRUM_RPC_FALLBACK_URL", "https://:443"),
         ("ARBITRUM_RPC_FALLBACK_URL", "https://arbitrum.example.test?key=secret"),
     ],
 )
