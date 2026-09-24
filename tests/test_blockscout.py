@@ -131,7 +131,7 @@ async def test_json_rpc_client_uses_unauthenticated_fallback_after_transient_fai
     client = BlockscoutJsonRpcClient(
         "proapi_test",
         chain_id="42161",
-        fallback_url="https://arb1.arbitrum.io/rpc",
+        fallback_url="https://arb1.arbitrum.io/rpc/",
         client=primary_client,
         fallback_client=fallback_client,
         max_attempts=2,
@@ -146,7 +146,7 @@ async def test_json_rpc_client_uses_unauthenticated_fallback_after_transient_fai
         for request in primary_requests
     )
     assert "Authorization" not in fallback_requests[0].headers
-    assert str(fallback_requests[0].url) == "https://arb1.arbitrum.io/rpc"
+    assert str(fallback_requests[0].url) == "https://arb1.arbitrum.io/rpc/"
     assert fallback_requests[0].headers["User-Agent"] == USER_AGENT
     assert delays == [0.5]
     await primary_client.aclose()
@@ -267,6 +267,23 @@ async def test_json_rpc_client_rejects_invalid_response() -> None:
     client = BlockscoutJsonRpcClient("proapi_test", client=http_client)
     with pytest.raises(BlockscoutJsonRpcError, match="response is invalid"):
         await client.eth_call(to="0xabc", data="0x01")
+    await http_client.aclose()
+
+
+async def test_json_rpc_client_treats_empty_fallback_url_as_disabled() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": "0x01"})
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = BlockscoutJsonRpcClient(
+        "proapi_test",
+        fallback_url="   ",
+        client=http_client,
+    )
+
+    assert await client.eth_call(to="0xabc", data="0x01") == "0x01"
+    await client.aclose()
+    assert not http_client.is_closed
     await http_client.aclose()
 
 

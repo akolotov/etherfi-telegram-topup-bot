@@ -196,7 +196,7 @@ def _looks_like_safe_transaction_service_key(value: str) -> bool:
 
 
 def _optional_https_url(value: str, setting_name: str) -> str | None:
-    url = value.strip().rstrip("/")
+    url = value.strip()
     if not url:
         return None
     try:

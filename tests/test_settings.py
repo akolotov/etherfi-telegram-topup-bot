@@ -94,7 +94,7 @@ def test_runtime_settings_reads_and_disables_rpc_fallback_urls(tmp_path) -> None
 
     settings = RuntimeSettings.from_env_file(env_path, environ={})
 
-    assert settings.optimism_rpc_fallback_url == "https://optimism.example.test/rpc"
+    assert settings.optimism_rpc_fallback_url == "https://optimism.example.test/rpc/"
     assert settings.arbitrum_rpc_fallback_url is None
 
 

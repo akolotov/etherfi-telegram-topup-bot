@@ -140,12 +140,13 @@ class BlockscoutJsonRpcClient:
             raise ValueError("retry_backoff_factor must be finite and >= 1")
         if not isfinite(fallback_cooldown_seconds) or fallback_cooldown_seconds < 0:
             raise ValueError("fallback_cooldown_seconds must be finite and >= 0")
-        if fallback_client is not None and fallback_url is None:
+        normalized_fallback_url = (fallback_url or "").strip() or None
+        if fallback_client is not None and normalized_fallback_url is None:
             raise ValueError("fallback_url is required with fallback_client")
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._chain_id = str(chain_id)
-        self._fallback_url = fallback_url.rstrip("/") if fallback_url else None
+        self._fallback_url = normalized_fallback_url
         self._fallback_cooldown_seconds = fallback_cooldown_seconds
         self._monotonic = monotonic_clock
         self._primary_retry_at = 0.0
@@ -163,7 +164,9 @@ class BlockscoutJsonRpcClient:
                 "User-Agent": USER_AGENT,
             }
         )
-        self._owns_fallback_client = fallback_url is not None and fallback_client is None
+        self._owns_fallback_client = (
+            self._fallback_url is not None and fallback_client is None
+        )
         self._fallback_client = fallback_client
         if self._fallback_url is not None and self._fallback_client is None:
             self._fallback_client = httpx.AsyncClient(timeout=timeout_seconds)
